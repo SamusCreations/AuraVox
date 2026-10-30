@@ -1,78 +1,93 @@
-# Plugins de AuraVox
+# Creating a Plugin for AuraVox
 
-Cada carpeta de aquí es un plugin: herramientas nuevas que los asistentes
-pueden usar (el modelo decide cuándo llamarlas).
+Each subfolder inside `plugins/` is a plugin. If it contains `manifest.json` and `plugin.py`, AuraVox automatically discovers it on startup and displays it under **Shared Settings → Plugins**.
 
-```
+Look at `plugins/dice_example/` to see a complete working example in ~35 lines of code.
+
+---
+
+## 1. Folder Structure
+
+```text
 plugins/
-  mi_plugin/            ← el id: minúsculas, números y _ (2 a 40)
+  my_plugin/
     manifest.json
     plugin.py
 ```
 
-## manifest.json
+The folder name (`my_plugin`) is the plugin identifier: only lowercase letters, numbers, and `_` are allowed.
+
+---
+
+## 2. `manifest.json`
 
 ```json
 {
-  "id": "mi_plugin",
-  "name": "Nombre para mostrar",
-  "description": "Qué hace, en una frase.",
+  "name": "Visible Name",
   "version": "1.0",
-  "author": "Tu nombre",
-  "min_role": "guest",
-  "tools": [
+  "description": "What this plugin adds to the assistants (one sentence).",
+  "enabled_by_default": false,
+  "settings": [
     {
-      "name": "nombre_de_la_herramienta",
-      "description": "En inglés: cuándo usarla (el modelo lee esto).",
-      "parameters": {"type": "object", "properties": {"x": {"type": "string"}}, "required": ["x"]}
+      "key": "url",
+      "label": "Server URL",
+      "type": "text",
+      "default": "http://127.0.0.1:8123",
+      "placeholder": "http://..."
+    },
+    {
+      "key": "api_key",
+      "label": "Access Token",
+      "type": "password",
+      "default": ""
     }
   ]
 }
 ```
 
-- `min_role`: quién puede usarlo: `guest` (todos), `user` (perfiles) o
-  `admin` (solo administradores). El administrador lo puede cambiar.
-- `tools`: en el formato de herramientas de Ollama (JSON Schema).
+- `settings` is optional. Supported field types (`type`): `"text"`, `"password"`, `"number"`, `"checkbox"`.
+- What the user enters in the Settings UI is saved to `config/plugins.json` and passed to your functions inside the `settings` dictionary.
 
-## plugin.py
+---
+
+## 3. `plugin.py`
+
+Must define `TOOLS` (a list of tools in Ollama/OpenAI function-calling format) and `execute(tool_name, args, ctx)`:
 
 ```python
-def call(name, args, ctx):
-    # name: la herramienta que llamó el modelo; args: sus argumentos (dict).
-    # ctx: quién pregunta (ctx.role, ctx.profile, ctx.assistant, ctx.lang…),
-    #      o None en los modos de consola.
-    return "Texto con el resultado, para que el modelo redacte la respuesta."
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "do_something",
+            "description": "Explain to the AI model WHEN to use this tool (in English).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to look up."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+]
+
+
+def execute(name: str, args: dict, ctx: dict) -> str:
+    """Runs when the assistant invokes one of the tools in TOOLS.
+    Must return a plain text string with the result (which the assistant will read to formulate its reply).
+    """
+    settings = ctx["settings"]          # values configured by the user in the Web UI
+    assistant = ctx["assistant"]        # name of the assistant invoking the tool
+    if name == "do_something":
+        q = args.get("query", "")
+        return f"Result for {q} using {settings.get('url')}"
+    return f"(unknown tool: {name})"
+
+
+def prompt_Note(settings: dict) -> str:
+    """Optional: extra instruction appended to the assistant's system prompt while the plugin is enabled."""
+    return ""
 ```
 
-Opcionales:
-- `tools(ctx)`: devuelve la lista de herramientas si dependen de algo (en
-  vez de las del manifiesto).
-- `context(ctx)`: texto que se suma a las instrucciones del asistente.
-- `check(settings)`: `(ok, texto)` para el botón "Probar" de sus ajustes.
-- `http(method, action, data, ctx)`: rutas propias en
-  `/api/plugin/<id>/<acción>` (GET con los parámetros de la URL, POST con
-  JSON); devuelve un dict o `(estado, dict)`. Las puede llamar quien tenga
-  el rol mínimo del plugin; lo que sea solo para administradores lo
-  comprueba el plugin con `ctx.role`. `ctx.emit(evento)` manda un evento al
-  chat durante una respuesta (el de ComfyUI manda `{"type": "job"}` y la
-  página dibuja la tarjeta de progreso, ver `features.js`).
-
-## Ajustes
-
-`"settings"` en el manifiesto: lo que llena un administrador en Ajustes →
-Plugins y el plugin lee con `plugins.settings("<id>")`. Tipos: `text`,
-`secret` (no se vuelve a mostrar), `number`, `select` (con `"options":
-[{"value", "label": {"es", "en"}}]`) y `bool` (se guarda `"true"`/`"false"`).
-
-`comfyui` es el ejemplo más completo: ajustes, rutas propias, trabajos en
-segundo plano y su propio panel en Ajustes.
-
-## Activarlo
-
-Un plugin nuevo arranca **desactivado** (es código que corre en tu PC):
-actívalo en **Ajustes → Plugins** (solo administradores), donde también
-se elige su rol mínimo. Si tiene un error al cargar, ahí se ve cuál.
-
-Los que vienen con AuraVox (búsqueda web y lugares, clima, Spotify) son
-plugins también y se pueden desactivar igual. `dice_example` es un
-ejemplo mínimo para copiar.
+After creating the folder, click **Reload** under **Shared Settings → Plugins** (or restart AuraVox) and toggle it on.

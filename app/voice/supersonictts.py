@@ -235,7 +235,7 @@ def create_tts(cfg: dict = None):
     sessions = [v for v in vars(model.model).values() if hasattr(v, "get_providers")]
     device = cuda_setup.session_device(sessions)
     if device == "CPU" and "CUDAExecutionProvider" in providers:
-        reason = "CPU: onnxruntime no pudo iniciar CUDA (revisa los mensajes de arriba)"
+        reason = "CPU: onnxruntime could not initialize CUDA (check messages above)"
     return model, device, reason
 
 
@@ -256,11 +256,11 @@ def shared_tts(cfg: dict = None):
     key = (cfg["model"], cfg["model_dir"])
     with _shared_lock:
         if _shared["model"] is None or _shared["key"] != key:
-            print(f"Cargando modelo Supertonic ({cfg['model']}) ...")
+            print(f"Loading Supertonic model ({cfg['model']}) ...")
             t0 = time.time()
             model, device, reason = create_tts(cfg)
             _shared.update(key=key, model=model, device=device, reason=reason)
-            print(f"Modelo cargado en {time.time() - t0:.1f}s — {reason}\n")
+            print(f"Model loaded in {time.time() - t0:.1f}s — {reason}\n")
         return _shared["model"], _shared["device"], _shared["reason"]
 
 
@@ -322,7 +322,7 @@ class JarvisVoice:
         model.save_audio(wav, out_path)
         audio_seg = wav.shape[-1] / 44100
         rtf = dur / audio_seg if audio_seg else 0.0
-        print(f"⏱  {dur:.2f}s para {audio_seg:.1f}s de audio  (RTF {rtf:.2f}x) → {out_path}")
+        print(f"⏱  {dur:.2f}s for {audio_seg:.1f}s of audio  (RTF {rtf:.2f}x) → {out_path}")
         return out_path
 
 
@@ -331,7 +331,7 @@ if __name__ == "__main__":
     jarvis_voice.speak("Hola, soy JARVIS y estoy aquí para ayudarte en lo que necesites.", "test1.wav")
     jarvis_voice.speak("Esta es la segunda generación para medir la velocidad real.", "test2.wav")
 
-    print("\nEscribe texto para sintetizar (o 'salir'):")
+    print("\nType text to synthesize (or 'exit'):")
     while True:
         txt = input("> ").strip()
         if txt.lower() in ("salir", "exit", "quit", ""):

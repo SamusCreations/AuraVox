@@ -1,9 +1,8 @@
-# Variantes/apodos que también deben reconocerse como el nombre de cada
-# asistente, por si Whisper transcribe mal el nombre real. Una variante por
-# línea, bajo la sección del asistente ([jarvis], [bella], o el nombre de
-# cualquier asistente de assistants.yaml). No importan mayúsculas ni tildes
-# (se normalizan solas). "#" para comentarios. También se editan desde la
-# interfaz web.
+# Phonetic variants/aliases that should also be recognized as each assistant's
+# wake word when Whisper slightly mishears the name. One variant per line under
+# the assistant's section ([jarvis], [bella], or any assistant defined in
+# assistants.yaml). Case and accents are normalized automatically. Lines
+# starting with "#" are comments. Also editable from the Web UI.
 
 [jarvis]
 harvis

@@ -79,7 +79,7 @@ def supervise(argv: list) -> int:
     env = {**os.environ, CHILD_ENV: "1"}
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     first = True
-    print("Recarga en caliente activada: los cambios en la página se ven solos y los del servidor lo reinician.")
+    print("Hot reload enabled: frontend changes apply immediately and backend changes restart the server.")
     while True:
         args = [sys.executable, os.path.abspath(sys.argv[0]), *argv]
         if not first:
@@ -106,7 +106,7 @@ def supervise(argv: list) -> int:
                 return 0
             # Se cayó (p. ej. un error en el código recién guardado): se
             # espera a que se corrija.
-            print(f"\n[recarga] el servidor terminó con el código {code}; espero un cambio en el código para reintentar…")
+            print(f"\n[reload] server exited with code {code}; waiting for a code change to retry…")
             before = _scan((".py",))
             try:
                 while _scan((".py",)) == before:
@@ -115,7 +115,7 @@ def supervise(argv: list) -> int:
                 return code
             continue
         names = ", ".join(os.path.relpath(p, paths.ROOT) for p in changed[:4])
-        print(f"\n[recarga] cambió {names}: reiniciando el servidor…")
+        print(f"\n[reload] {names} changed: restarting server…")
         time.sleep(0.4)  # que terminen de guardarse los demás archivos
         _stop(child)
 

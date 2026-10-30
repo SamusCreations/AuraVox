@@ -82,7 +82,7 @@ def _load_tts():
         t0 = time.time()
         _tts, device, reason = shared_tts()
         _tts_device = device
-        log("voz", f"Supertonic listo en {time.time() - t0:.1f}s — {reason}", "info" if device == "GPU" else "warn")
+        log("voice", f"Supertonic ready in {time.time() - t0:.1f}s — {reason}", "info" if device == "GPU" else "warn")
     return _tts
 
 
@@ -103,9 +103,9 @@ def _synthesize_custom(text: str, voice: dict, lang: str, wait: bool = False) ->
             os.remove(tmp)
         except OSError:
             pass
-    log("voz", f"{voice['code']} [{lang}] con Qwen3-TTS en {engine().device}: {reply['seconds']:.2f}s para "
-               f"{reply['audio_seconds']:.1f}s de audio (RTF {reply['seconds'] / max(reply['audio_seconds'], 0.01):.2f}) "
-               f"«{_short(text)}»")
+    log("voice", f"{voice['code']} [{lang}] with Qwen3-TTS on {engine().device}: {reply['seconds']:.2f}s for "
+                 f"{reply['audio_seconds']:.1f}s of audio (RTF {reply['seconds'] / max(reply['audio_seconds'], 0.01):.2f}) "
+                 f"«{_short(text)}»")
     return data
 
 
@@ -123,7 +123,7 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
     with _tts_lock:
         if key in _tts_cache:
             _tts_cache.move_to_end(key)
-            log("voz", f"en caché, sin regenerar: «{_short(text)}»")
+            log("voice", f"cached, no regeneration: «{_short(text)}»")
             return _tts_cache[key]
 
     if voice_settings.is_custom(voice):
@@ -139,9 +139,9 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
                 from app.voice.qwen_tts import WarmingUp
 
                 if isinstance(e, WarmingUp):
-                    log("voz", f"voz clonada {voice} preparándose; mientras, habla con su voz de respaldo")
+                    log("voice", f"cloned voice {voice} warming up; speaking with fallback voice in the meantime")
                 else:
-                    log("voz", f"voz clonada {voice} no disponible ({e}); uso su voz de respaldo", "warn")
+                    log("voice", f"cloned voice {voice} unavailable ({e}); using fallback voice", "warn")
         voice = custom["fallback_voice"] if custom else "M5"
 
     tts_lang = lang if lang in AVAILABLE_LANGUAGES else "na"
@@ -170,8 +170,8 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
         while len(_tts_cache) > _TTS_CACHE_SIZE:
             _tts_cache.popitem(last=False)
     audio_seconds = len(audio) / samplerate
-    log("voz", f"{voice} [{lang}] en {_tts_device}: {seconds:.2f}s para {audio_seconds:.1f}s de audio "
-               f"(RTF {seconds / max(audio_seconds, 0.01):.2f}) «{_short(text)}»")
+    log("voice", f"{voice} [{lang}] on {_tts_device}: {seconds:.2f}s for {audio_seconds:.1f}s of audio "
+                 f"(RTF {seconds / max(audio_seconds, 0.01):.2f}) «{_short(text)}»")
     return data
 
 
@@ -197,7 +197,7 @@ def ensure_preview(lang: str, voice: str) -> str:
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, path)
-        log("voz", f"muestra guardada: {os.path.relpath(path, paths.ROOT)}")
+        log("voice", f"preview saved: {os.path.relpath(path, paths.ROOT)}")
     return path
 
 
@@ -213,7 +213,7 @@ def _ensure_stt():
 
     wanted = voice_settings.stt_model()
     if _stt is not None and _stt.config["model_size"] != wanted:
-        log("oído", f"cambio de Whisper: {_stt.config['model_size']} → {wanted}")
+        log("stt", f"switching Whisper model: {_stt.config['model_size']} → {wanted}")
         _stt = None
         gc.collect()
     if _stt is None:
@@ -221,7 +221,7 @@ def _ensure_stt():
         _stt = stt_whisper.WhisperSTT({**stt_whisper.CONFIG, "model_size": wanted})
         _stt._load()
         device = getattr(_stt._model.model, "device", "?")
-        log("oído", f"Whisper ({wanted}) cargado en {device} en {time.time() - t0:.1f}s")
+        log("stt", f"Whisper ({wanted}) loaded on {device} in {time.time() - t0:.1f}s")
     return _stt
 
 
@@ -232,7 +232,7 @@ def load_stt() -> None:
         _ensure_stt()
 
 
-def transcribe_array(audio, languages, hint: str = None, source: str = "oído") -> tuple:
+def transcribe_array(audio, languages, hint: str = None, source: str = "stt") -> tuple:
     """Audio (numpy float32 mono a 16 kHz) → (texto, idioma, detección
     clara). Solo elige entre `languages` (vacío = todos los del pipeline),
     igual que voice_loop.py con los idiomas del asistente. `hint`: el idioma
@@ -244,8 +244,8 @@ def transcribe_array(audio, languages, hint: str = None, source: str = "oído") 
         t0 = time.time()
         text, lang = stt.transcribe(audio, hint=hint, languages=set(languages or pipeline_languages()))
         detail, confident = stt.last_detail, stt.last_confident
-    log(source, f"{len(audio) / stt_whisper.CONFIG['samplerate']:.1f}s de audio → [{lang}] «{_short(text) or '(nada)'}» "
-                f"en {time.time() - t0:.2f}s — idioma: {detail}")
+    log(source, f"{len(audio) / stt_whisper.CONFIG['samplerate']:.1f}s of audio → [{lang}] «{_short(text) or '(empty)'}» "
+                f"in {time.time() - t0:.2f}s — language: {detail}")
     return text.strip(), lang, confident
 
 
@@ -287,8 +287,8 @@ def transcribe_file(data: bytes, name: str = "") -> tuple:
             parts.append(text)
             last_end = seg.end
     text = "".join(parts).strip()
-    log("adjunto", f"audio «{name}» ({seconds:.0f}s) → [{info.language} {info.language_probability:.2f}] "
-                   f"{len(text)} caracteres en {time.time() - t0:.1f}s: «{_short(text)}»")
+    log("attachment", f"audio «{name}» ({seconds:.0f}s) → [{info.language} {info.language_probability:.2f}] "
+                      f"{len(text)} chars in {time.time() - t0:.1f}s: «{_short(text)}»")
     return text, info.language, seconds
 
 
@@ -311,26 +311,26 @@ def _refresh_user_context() -> None:
 def _log_event(label: str):
     def on_event(kind: str, d: dict) -> None:
         if kind == "round":
-            load = f", {d['load_seconds']:.1f}s de ellos cargando el modelo" if d["load_seconds"] >= 0.5 else ""
-            prompt = f", {d['prompt_seconds']:.1f}s leyendo el prompt" if d.get("prompt_seconds", 0) >= 0.3 else ""
-            log("chat", f"{label}: ronda {d['n']} de Ollama en {d['seconds']:.1f}s{load}{prompt} ({d['tokens'] or 0} tokens)")
+            load = f", {d['load_seconds']:.1f}s loading model" if d["load_seconds"] >= 0.5 else ""
+            prompt = f", {d['prompt_seconds']:.1f}s prompt eval" if d.get("prompt_seconds", 0) >= 0.3 else ""
+            log("chat", f"{label}: Ollama round {d['n']} in {d['seconds']:.1f}s{load}{prompt} ({d['tokens'] or 0} tokens)")
             _warn_if_gpu_full(label, d["seconds"] - d["load_seconds"], d["tokens"])
         elif kind == "retry":
             extra = f": «{_short(d['text'])}»" if d["text"] else ""
-            log("chat", f"{label}: reintento — {d['reason']}{extra}", "warn")
+            log("chat", f"{label}: retry — {d['reason']}{extra}", "warn")
         elif kind == "tool":
-            log("herramienta", f"{d['name']}({json.dumps(d['arguments'], ensure_ascii=False)})")
+            log("tool", f"{d['name']}({json.dumps(d['arguments'], ensure_ascii=False)})")
         elif kind == "review":
-            log("chat", f"{label}: revisión en {d['seconds']:.1f}s — herramienta: {d.get('needed_tool')}, "
-                        f"problema: {d.get('draft_problem')}, idioma: {d.get('draft_language')} "
+            log("chat", f"{label}: review in {d['seconds']:.1f}s — tool: {d.get('needed_tool')}, "
+                        f"problem: {d.get('draft_problem')}, language: {d.get('draft_language')} "
                         f"(«{_short(d.get('reasoning', ''), 100)}»)")
         elif kind == "precheck":
-            log("chat", f"{label}: revisión previa en {d['seconds']:.1f}s (en paralelo) — herramienta: "
+            log("chat", f"{label}: parallel precheck in {d['seconds']:.1f}s — tool: "
                         f"{d.get('needed_tool')} («{_short(d.get('reasoning', ''), 100)}»)")
         elif kind == "review_skipped":
-            log("chat", f"{label}: sin revisión del borrador (no hizo falta herramienta y el idioma está fijado)")
+            log("chat", f"{label}: draft review skipped (no tool needed and language is fixed)")
         elif kind == "fallback":
-            log("chat", f"{label}: se agotaron las {d['rounds']} rondas; responde el mensaje de 'se me trabó'", "warn")
+            log("chat", f"{label}: exhausted {d['rounds']} tool rounds; returning fallback message", "warn")
     return on_event
 
 
@@ -389,7 +389,7 @@ def _convert_result(arguments: dict, files: list, on_file) -> str:
     try:
         out = converters.convert(found[0], src["name"], target)
     except converters.ConversionError as e:
-        log("herramienta", f"convert_file: «{src['name']}» → {target}: {e}", "warn")
+        log("tool", f"convert_file: «{src['name']}» → {target}: {e}", "warn")
         return f"Couldn't convert it: {e}. Tell the user plainly, in one sentence."
     try:
         with open(out, "rb") as f:
@@ -560,15 +560,15 @@ def chat(cfg: dict, shared_context: str, history: list, reply_lang: str, on_tool
                 result = f"Unknown tool {name}."
         else:
             result = call_tool(name, arguments)
-        log("herramienta", f"{name} respondió en {time.time() - t0:.1f}s: «{_short(result, 90)}»")
+        log("tool", f"{name} replied in {time.time() - t0:.1f}s: «{_short(result, 90)}»")
         return result
 
     _refresh_user_context()
     last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-    mode = "voz" if style == "voice" else "escrito"
-    lang_note = reply_lang or f"automático ({', '.join(auto_langs or [])})"
+    mode = "voice" if style == "voice" else "text"
+    lang_note = reply_lang or f"auto ({', '.join(auto_langs or [])})"
     what = f"[{cue}]" if cue else f"← «{_short(last_user)}»"
-    log("chat", f"{label} ({cfg['base_model']}, idioma {lang_note}, modo {mode}) {what}")
+    log("chat", f"{label} ({cfg['base_model']}, lang {lang_note}, mode {mode}) {what}")
     t0 = time.time()
     info = {}
     first = {}
@@ -604,8 +604,8 @@ def chat(cfg: dict, shared_context: str, history: list, reply_lang: str, on_tool
         on_text=timed_text if on_text else None,
         dynamic_context=dynamic_context,
     )
-    shown = f", primer texto a los {first['at']:.1f}s" if "at" in first else ""
-    log("chat", f"{label} → respuesta en {time.time() - t0:.1f}s{shown} ({len(reply.split())} palabras): «{_short(reply, 90)}»")
+    shown = f", first token at {first['at']:.1f}s" if "at" in first else ""
+    log("chat", f"{label} → reply in {time.time() - t0:.1f}s{shown} ({len(reply.split())} words): «{_short(reply, 90)}»")
     return reply, reply_lang or info.get("language") or cfg["language"]
 
 
@@ -641,12 +641,12 @@ def summarize(cfg: dict, previous: str, messages: list):
         r.raise_for_status()
         text = (r.json()["message"].get("content") or "").strip()
     except (requests.exceptions.RequestException, ValueError, KeyError) as e:
-        log("chat", f"{label}: no pude resumir lo viejo de la conversación ({e}); se recorta", "warn")
+        log("chat", f"{label}: could not summarize older messages ({e}); truncating instead", "warn")
         return None
     if not text:
         return None
-    log("chat", f"{label}: resumí {len(messages)} mensajes viejos en {time.time() - t0:.1f}s "
-                f"({len(text.split())} palabras): «{_short(text, 100)}»")
+    log("chat", f"{label}: summarized {len(messages)} older messages in {time.time() - t0:.1f}s "
+                f"({len(text.split())} words): «{_short(text, 100)}»")
     return text[:8000]
 
 
@@ -708,7 +708,7 @@ def route_addressees(cfg: dict, history: list, labels: dict, outsiders: dict = N
     for key, out in list(outsiders.items())[:2]:
         t0 = time.time()
         rel = _outsider_relation(cfg, transcript, inside, out)
-        log("chat", f"grupo: {out} (no está) → {rel.get('relation', '?')} en {time.time() - t0:.1f}s "
+        log("chat", f"group: {out} (not in room) → {rel.get('relation', '?')} in {time.time() - t0:.1f}s "
                     f"(«{_short(rel.get('reasoning', ''), 100)}»)")
         if rel.get("relation") == "spoken_to":
             return {"keys": [key], "all": False}
@@ -733,15 +733,15 @@ def route_addressees(cfg: dict, history: list, labels: dict, outsiders: dict = N
         {"role": "user", "content": transcript},
     ], schema, keep_alive=CHAT_KEEP_ALIVE)
     if not data:
-        log("chat", "grupo: no pude decidir a quién le hablaron; responde el de la página", "warn")
+        log("chat", "group: could not determine addressee; defaulting to current page assistant", "warn")
         return {"keys": [], "all": False}
     keys = [by_label[n] for n in dict.fromkeys(data.get("addressed") or []) if n in by_label]
     first = by_label.get(data.get("first") or "")
     everyone = bool(data.get("everyone"))
     if everyone:
         keys = [first] if first else []
-    log("chat", f"grupo: {'todos' if everyone else ', '.join(labels[k] for k in keys) or '(nadie en particular)'}"
-                f"{f', empieza {labels[first]}' if everyone and first else ''} en {time.time() - t0:.1f}s "
+    log("chat", f"group: {'everyone' if everyone else ', '.join(labels[k] for k in keys) or '(nobody in particular)'}"
+                f"{f', starting with {labels[first]}' if everyone and first else ''} in {time.time() - t0:.1f}s "
                 f"(«{_short(data.get('reasoning', ''), 100)}»)")
     return {"keys": keys, "all": everyone}
 
@@ -758,10 +758,10 @@ def prewarm_voices() -> bool:
 
     if any(voice_settings.is_custom(a["voice"]) for a in store.load_state()["assistants"]):
         if engine().warm_up_async():
-            log("voz", "preparando las voces clonadas en segundo plano (mientras, hablan con su voz de respaldo)")
+            log("voice", "warming up cloned voices in the background (using fallback voice in the meantime)")
             return True
     elif not engine().warming and engine().release():
-        log("memoria", "ningún asistente usa voz clonada: cerré Qwen3-TTS (libera su VRAM)")
+        log("memory", "no assistant uses a cloned voice: closed Qwen3-TTS (freed its VRAM)")
     return False
 
 
@@ -787,8 +787,8 @@ def _warn_if_gpu_full(label: str, seconds: float, tokens: int) -> None:
         return
     mem = _gpu_memory()
     if mem and mem[0] > mem[1] * 0.92:
-        log("chat", f"{label}: la GPU está llena ({mem[0] / 1024:.1f} de {mem[1] / 1024:.1f} GB): Windows pasa memoria "
-                    "a la RAM y todo va mucho más lento. Cierra programas que usen la GPU o usa un modelo más chico.",
+        log("chat", f"{label}: GPU VRAM is nearly full ({mem[0] / 1024:.1f} of {mem[1] / 1024:.1f} GB): Windows is spilling "
+                    "into system RAM, slowing inference significantly. Close GPU-heavy apps or use a smaller model.",
             "warn")
 
 
@@ -814,7 +814,7 @@ def unload(ollama_models=()) -> None:
     freed = ([*ollama_models] + (["Supertonic"] if had_tts else []) + (["Whisper"] if had_stt else [])
              + (["Qwen3-TTS"] if had_qwen else []))
     if freed:
-        log("memoria", f"liberados: {', '.join(freed)}")
+        log("memory", f"unloaded: {', '.join(freed)}")
 
 
 def status() -> dict:

@@ -1,10 +1,10 @@
-"""
-Configuración inicial de Spotify: pide el Client ID/Secret de tu app de
-developer.spotify.com, si tenés Premium o no, y (solo si sos Premium) te
-hace iniciar sesión una vez en el navegador para poder controlar la
-reproducción por voz. Todo queda guardado en spotify_config.yaml.
+r"""
+Initial Spotify setup: prompts for the Client ID/Secret of your app from
+developer.spotify.com, asks whether you have Spotify Premium, and (if Premium)
+opens the browser once to sign in so you can control playback by voice.
+Everything is saved to config/spotify_config.yaml.
 
-Ejecutar: spotify_setup.bat (o "python spotify_setup.py" directamente).
+Run: extras\spotify_setup.bat (or "python app/scripts/spotify_setup.py").
 """
 import os
 import sys
@@ -15,8 +15,6 @@ from urllib.parse import urlencode, urlparse, parse_qs
 import requests
 import yaml
 
-# Ejecutado como script (los .bat): la raíz del proyecto va al path para
-# poder importar el paquete `app` (el Python embebido no lo agrega solo).
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
@@ -31,8 +29,8 @@ SCOPES = "user-modify-playback-state user-read-playback-state"
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
-    """Recibe UNA sola petición: el redirect de Spotify con el código de
-    autorización (o un error) en la URL."""
+    """Handles a SINGLE request: the Spotify OAuth redirect containing the
+    authorization code (or an error) in the URL query string."""
 
     def do_GET(self):
         query = parse_qs(urlparse(self.path).query)
@@ -42,13 +40,13 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
         if self.server.auth_code:
-            body = "<html><body><h2>Listo, ya podés cerrar esta pestaña y volver a la consola.</h2></body></html>"
+            body = "<html><body><h2>Done! You can close this tab and return to the console.</h2></body></html>"
         else:
-            body = f"<html><body><h2>Algo salió mal: {self.server.auth_error}</h2></body></html>"
+            body = f"<html><body><h2>Something went wrong: {self.server.auth_error}</h2></body></html>"
         self.wfile.write(body.encode("utf-8"))
 
     def log_message(self, format, *args):
-        pass  # sin esto, imprime una línea de log por cada petición HTTP
+        pass
 
 
 def _load_config() -> dict:
@@ -63,17 +61,16 @@ def _save_config(cfg: dict):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write(
             "# ══════════════════════════════════════════════════════════════════════\n"
-            "# Credenciales y configuración de Spotify — generado/editado por\n"
-            "# spotify_setup.bat. Ver ese script o el README para más detalle de\n"
-            "# cada campo.\n"
+            "# Spotify credentials and settings — generated/updated by\n"
+            "# spotify_setup.bat. See that script or README.md for details.\n"
             "# ══════════════════════════════════════════════════════════════════════\n"
         )
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
 
 
 def _check_credentials(client_id: str, client_secret: str) -> bool:
-    """Pide un token por Client Credentials (no necesita login de usuario)
-    solo para confirmar que el Client ID/Secret son válidos."""
+    """Requests a Client Credentials token (no user login required) just to
+    verify that the Client ID and Secret are valid."""
     try:
         r = requests.post(
             TOKEN_URL,
@@ -87,8 +84,8 @@ def _check_credentials(client_id: str, client_secret: str) -> bool:
 
 
 def _run_oauth_flow(client_id: str, client_secret: str) -> str:
-    """Hace el login de Spotify en el navegador y devuelve el
-    refresh_token, o None si algo falla."""
+    """Runs the Spotify login flow in the browser and returns the
+    refresh_token, or None if anything fails."""
     params = {
         "client_id": client_id,
         "response_type": "code",
@@ -97,27 +94,27 @@ def _run_oauth_flow(client_id: str, client_secret: str) -> str:
     }
     auth_url = f"{AUTHORIZE_URL}?{urlencode(params)}"
 
-    print(f"\nAbriendo el navegador para iniciar sesión en Spotify...")
-    print(f"Si no se abre solo, entrá manualmente a esta dirección:\n{auth_url}\n")
+    print("\nOpening browser to sign in to Spotify...")
+    print(f"If it does not open automatically, visit this URL manually:\n{auth_url}\n")
     webbrowser.open(auth_url)
 
     try:
         server = HTTPServer(("127.0.0.1", REDIRECT_PORT), _CallbackHandler)
     except OSError as e:
         print(
-            f"No pude abrir el puerto {REDIRECT_PORT} para recibir el login "
-            f"({e}). ¿Hay algo más usando ese puerto?"
+            f"Could not bind port {REDIRECT_PORT} to receive the login callback "
+            f"({e}). Is another process using that port?"
         )
         return None
 
     server.auth_code = None
     server.auth_error = None
-    print("Esperando a que completes el login en el navegador...")
-    server.handle_request()  # bloquea hasta la primera petición (el redirect de Spotify)
+    print("Waiting for you to complete login in the browser...")
+    server.handle_request()
     server.server_close()
 
     if not server.auth_code:
-        print(f"No se pudo obtener el permiso ({server.auth_error}).")
+        print(f"Could not obtain authorization ({server.auth_error}).")
         return None
 
     r = requests.post(
@@ -131,52 +128,52 @@ def _run_oauth_flow(client_id: str, client_secret: str) -> str:
         timeout=15,
     )
     if r.status_code != 200:
-        print(f"No se pudo intercambiar el código por un token ({r.status_code}: {r.text[:200]}).")
+        print(f"Could not exchange authorization code for a token ({r.status_code}: {r.text[:200]}).")
         return None
 
     return r.json().get("refresh_token")
 
 
 def main():
-    print("=== Configuración de Spotify ===\n")
+    print("=== Spotify Setup ===\n")
     cfg = _load_config()
 
     print(
-        "Antes de seguir, necesitás una app gratis en developer.spotify.com "
-        "con este Redirect URI agregado en su configuración (Settings → "
+        "Before continuing, you need a free app at developer.spotify.com "
+        "with this Redirect URI added to its configuration (Settings → "
         f"Redirect URIs):\n\n  {REDIRECT_URI}\n\n"
-        "(Ver el README para el paso a paso completo si todavía no la creaste.)\n"
+        "(See README.md for step-by-step instructions if you haven't created one yet.)\n"
     )
 
     client_id = input(f"Client ID{' [' + cfg.get('client_id','')[:6] + '...]' if cfg.get('client_id') else ''}: ").strip() or cfg.get("client_id", "")
     client_secret = input("Client Secret: ").strip() or cfg.get("client_secret", "")
 
     if not client_id or not client_secret:
-        print("Hace falta Client ID y Client Secret, cancelado.")
+        print("Client ID and Client Secret are required. Cancelled.")
         sys.exit(1)
 
-    print("\nProbando las credenciales...")
+    print("\nTesting credentials...")
     if not _check_credentials(client_id, client_secret):
-        print("El Client ID/Secret no parecen válidos. Revisalos en developer.spotify.com y probá de nuevo.")
+        print("Client ID/Secret appear invalid. Check them at developer.spotify.com and try again.")
         sys.exit(1)
-    print("Credenciales válidas.")
+    print("Credentials are valid.")
 
-    premium_input = input("\n¿Tenés Spotify Premium? [s/N]: ").strip().lower()
-    premium = premium_input == "s"
+    premium_input = input("\nDo you have Spotify Premium? [y/N]: ").strip().lower()
+    premium = premium_input in ("y", "yes", "s", "si")
 
     refresh_token = cfg.get("refresh_token", "")
     if premium:
         token = _run_oauth_flow(client_id, client_secret)
         if token:
             refresh_token = token
-            print("\nInicio de sesión completado, ya podés controlar la reproducción por voz.")
+            print("\nSign-in complete! You can now control playback by voice.")
         else:
-            print("\nNo se completó el login — se guarda igual lo demás, podés volver a correr este script para intentarlo de nuevo.")
+            print("\nSign-in was not completed — saving credentials anyway; re-run this script to try again.")
     else:
         refresh_token = ""
         print(
-            "\nSin Premium: los asistentes van a poder buscar y arrancar música "
-            "(canción/playlist/género), pero no pausar/saltar/subir volumen por voz."
+            "\nWithout Premium: assistants will be able to search and launch music "
+            "(track/playlist/genre), but cannot pause/skip/adjust volume via the Web API."
         )
 
     _save_config({
@@ -185,7 +182,7 @@ def main():
         "premium": premium,
         "refresh_token": refresh_token,
     })
-    print(f"\nListo, guardado en config\\spotify_config.yaml.")
+    print("\nDone! Saved to config\\spotify_config.yaml.")
 
 
 if __name__ == "__main__":

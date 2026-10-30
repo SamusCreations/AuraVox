@@ -194,7 +194,7 @@ def load_user_context(path: str = _DEFAULT_CONFIG_PATH) -> dict:
         lat = float(lat) if lat is not None else None
         lon = float(lon) if lon is not None else None
     except (TypeError, ValueError):
-        print(f"(aviso: assistants.yaml [user_context] latitud/longitud inválidas ('{lat}', '{lon}'), se ignoran)")
+        print(f"(warning: assistants.yaml [user_context] invalid latitude/longitude ('{lat}', '{lon}'), ignoring)")
         lat = lon = None
 
     return {
@@ -294,17 +294,17 @@ def load_assistants_config(path: str) -> dict:
 
         base_model = str(section.get("base_model", "")).strip()
         if not base_model:
-            raise ValueError(f"assistants.yaml: '{name}' no tiene 'base_model' (obligatorio).")
+            raise ValueError(f"assistants.yaml: '{name}' is missing 'base_model' (required).")
         cfg["base_model"] = base_model
 
         personality = str(section.get("personality", "")).strip()
         if not personality:
-            raise ValueError(f"assistants.yaml: '{name}' no tiene 'personality' (obligatorio).")
+            raise ValueError(f"assistants.yaml: '{name}' is missing 'personality' (required).")
         cfg["personality"] = personality
 
         voice = normalize_voice(section.get("voice", "M5"))
         if not is_valid_voice(voice):
-            print(f"(aviso: assistants.yaml [{name}] voice '{voice}' no es válido, uso 'M5'. Opciones: {', '.join(sorted(VALID_VOICE_CODES))})")
+            print(f"(warning: assistants.yaml [{name}] voice '{voice}' is invalid, using 'M5'. Options: {', '.join(sorted(VALID_VOICE_CODES))})")
             voice = "M5"
         cfg["voice"] = voice
 
@@ -315,7 +315,7 @@ def load_assistants_config(path: str) -> dict:
                 if not (lo <= value <= hi):
                     raise ValueError
             except (TypeError, ValueError):
-                print(f"(aviso: assistants.yaml [{name}] {key}='{value}' inválido ({lo}-{hi}), uso {default})")
+                print(f"(warning: assistants.yaml [{name}] {key}='{value}' is invalid ({lo}-{hi}), using {default})")
                 value = default
             cfg[key] = value
 
@@ -326,7 +326,7 @@ def load_assistants_config(path: str) -> dict:
                 if not (lo <= value <= hi):
                     raise ValueError
             except (TypeError, ValueError):
-                print(f"(aviso: assistants.yaml [{name}] {key}='{value}' inválido ({lo}-{hi}), uso {default})")
+                print(f"(warning: assistants.yaml [{name}] {key}='{value}' is invalid ({lo}-{hi}), using {default})")
                 value = default
             cfg[key] = value
 
@@ -344,9 +344,9 @@ def load_assistants_config(path: str) -> dict:
         raw_key = section.get("push_to_talk_key") or ""
         cfg["push_to_talk_key"] = normalize_key(raw_key)
         if raw_key and not cfg["push_to_talk_key"]:
-            print(f"(aviso: assistants.yaml [{name}] push_to_talk_key '{raw_key}' no es una tecla soportada, push to talk desactivado)")
+            print(f"(warning: assistants.yaml [{name}] push_to_talk_key '{raw_key}' is not a supported key, push-to-talk disabled)")
         if not cfg["wake_word"] and not cfg["push_to_talk_key"]:
-            print(f"(aviso: assistants.yaml [{name}] no tiene wake_word ni push_to_talk_key; se activa wake_word para poder llamarlo)")
+            print(f"(warning: assistants.yaml [{name}] has neither wake_word nor push_to_talk_key; enabling wake_word so it can be called)")
             cfg["wake_word"] = True
         cfg["label"] = str(section.get("label", "")).strip() or name.upper()
 
@@ -384,7 +384,7 @@ def ensure_models_installed(assistants: dict) -> None:
     try:
         installed = ollama_installed_models()
     except requests.exceptions.RequestException:
-        print("(aviso: no pude conectar con Ollama para revisar qué modelos hay instalados)")
+        print("(warning: could not connect to Ollama to check installed models)")
         return
 
     needed = sorted({cfg["base_model"] for cfg in assistants.values()})
@@ -392,16 +392,16 @@ def ensure_models_installed(assistants: dict) -> None:
     if not missing:
         return
 
-    print(f"Modelos de assistants.yaml que faltan por instalar en Ollama: {', '.join(missing)}")
+    print(f"Models from assistants.yaml missing in Ollama: {', '.join(missing)}")
     for model in missing:
-        confirm = input(f"¿Descargar '{model}' ahora? [s/N]: ").strip().lower()
-        if confirm != "s":
-            print(f"(saltado: los asistentes que usan '{model}' van a fallar hasta que lo instales a mano con 'ollama pull {model}')")
+        confirm = input(f"Download '{model}' now? [y/N]: ").strip().lower()
+        if confirm not in ("y", "yes", "s", "si"):
+            print(f"(skipped: assistants using '{model}' will fail until you install it manually with 'ollama pull {model}')")
             continue
-        print(f"\nDescargando '{model}'...\n")
+        print(f"\nDownloading '{model}'...\n")
         result = subprocess.run(["ollama", "pull", model])
         if result.returncode != 0:
-            print(f"No se pudo descargar '{model}'.")
+            print(f"Could not download '{model}'.")
 
 
 def get_realtime_facts() -> dict:

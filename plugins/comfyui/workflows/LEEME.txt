@@ -1,12 +1,10 @@
-Flujos de ComfyUI para AuraVox
-==============================
+ComfyUI Workflows for AuraVox
+=============================
 
-AuraVox ya usa los flujos que guardas en ComfyUI (user/default/workflows):
-los convierte solo. Esta carpeta es para los que quieras agregar a mano:
+AuraVox automatically discovers and converts workflows saved in your ComfyUI installation (`user/default/workflows`). This folder is for additional workflows you want to add manually:
 
-- En ComfyUI: menú Workflow → Export (API) y guarda el .json aquí, o
-- Ajustes → Plugins → ComfyUI → "Importar flujo" en AuraVox.
+- In ComfyUI: open the Workflow menu → Export (API) and save the `.json` file here, or
+- In AuraVox: go to Shared Settings → Plugins → ComfyUI → "Import workflow".
 
-También se aceptan flujos en el formato normal de ComfyUI (el de "Save").
-Después, en Ajustes → Plugins → ComfyUI, asígnalo a una tarea (imagen,
-edición o video) y revisa qué entrada es el prompt, la semilla, el tamaño…
+Standard ComfyUI workflow files (saved via regular "Save") are also supported and converted automatically.
+Once added, go to Shared Settings → Plugins → ComfyUI, assign the workflow to a task (image generation, image editing, or video generation), and review the mapped inputs (prompt, seed, resolution, reference image, etc.).

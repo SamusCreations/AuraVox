@@ -204,7 +204,7 @@ def _ptt_turn(stt, name: str):
     """Graba mientras la tecla de `name` siga apretada y lo transcribe.
     Devuelve (texto, idioma); texto vacío si fue un toque sin habla."""
     key = ASSISTANTS[name]["ptt_key"]
-    print(f"({ASSISTANTS[name]['label']}: push to talk [{key}], escuchando mientras la mantengas apretada…)")
+    print(f"({ASSISTANTS[name]['label']}: push to talk [{key}], listening while held down…)")
     audio = ptt.record_while_pressed(key, MIC)
     ptt.wait_until_released(key)
     if audio is None:
@@ -444,7 +444,7 @@ def _log_rtf(synth_seconds: float, audio_seconds: float, note: str = ""):
         return
     rtf = synth_seconds / audio_seconds
     suffix = f" ({note})" if note else ""
-    print(f"⏱ RTF total de la respuesta: {synth_seconds:.2f}s cómputo / {audio_seconds:.2f}s audio = {rtf:.2f}x{suffix}")
+    print(f"⏱ Total reply RTF: {synth_seconds:.2f}s compute / {audio_seconds:.2f}s audio = {rtf:.2f}x{suffix}")
 
 
 _PLAYBACK_SAMPLERATE = 44100  # la de Supertonic (las voces clonadas, a 24 kHz, se remuestrean)
@@ -486,7 +486,7 @@ def _speak_chunks_with_barge_in(voice, chunks: list, wav_path: str, stt, ratio_t
             try:
                 voice.speak(chunk_text, chunk_path, lang=lang)
             except Exception as e:
-                print(f"(error sintetizando el trozo {i}: {e})")
+                print(f"(error synthesizing chunk {i}: {e})")
                 break
             synth_s = time.time() - t0
             if cancel_event.is_set():
@@ -520,7 +520,7 @@ def _speak_chunks_with_barge_in(voice, chunks: list, wav_path: str, stt, ratio_t
         finished_event.wait(timeout=1.0)
         _drain_chunk_queue(chunk_queue)
         with stats_lock:
-            _log_rtf(stats["synth"], stats["audio"], note="cortado por interrupción")
+            _log_rtf(stats["synth"], stats["audio"], note="cut short by interruption")
         return result
 
     with stats_lock:
@@ -555,7 +555,7 @@ def speak_with_barge_in(voice, text: str, wav_path: str, stt, ratio_threshold: f
 
 def handle_command(stt, name: str, command: str, lang: str = None):
     assistant = ASSISTANTS[name]
-    print(f"Tú ({assistant['label']})> {command}")
+    print(f"You ({assistant['label']})> {command}")
 
     history = assistant["history"]
     cfg = assistant["config"]
@@ -577,7 +577,7 @@ def handle_command(stt, name: str, command: str, lang: str = None):
     try:
         reply = ask_assistant(name, history, on_tool_call=_announce_search, reply_lang=lang, cfg=cfg)
     except requests.exceptions.ConnectionError:
-        print("No puedo conectar con Ollama. ¿Está corriendo el servicio ('ollama serve')?")
+        print("Cannot connect to Ollama. Is the service running ('ollama serve')?")
         history.pop()
         return None
     except requests.exceptions.RequestException as e:
@@ -586,7 +586,7 @@ def handle_command(stt, name: str, command: str, lang: str = None):
         # excepción suba sin control hasta main() (que igual limpiaría bien
         # al salir, pero así el asistente sigue disponible para el próximo
         # turno en vez de cortar toda la sesión).
-        print(f"(la petición a Ollama falló: {e}. Probá de nuevo.)")
+        print(f"(Ollama request failed: {e}. Please try again.)")
         history.pop()
         return None
 
@@ -650,11 +650,11 @@ def _handle_streaming(stt, name, history, cfg, lang, on_tool_call):
     thread.join(timeout=5)
     error = result.get("error")
     if isinstance(error, requests.exceptions.ConnectionError):
-        print("No puedo conectar con Ollama. ¿Está corriendo el servicio ('ollama serve')?")
+        print("Cannot connect to Ollama. Is the service running ('ollama serve')?")
     elif isinstance(error, requests.exceptions.RequestException):
-        print(f"(la petición a Ollama falló: {error}. Probá de nuevo.)")
+        print(f"(Ollama request failed: {error}. Please try again.)")
     elif error is not None:
-        print(f"(error al responder: {error})")
+        print(f"(error generating reply: {error})")
     reply = result.get("reply")
     if reply is None:
         if intr is None:
@@ -697,7 +697,7 @@ def run_session(stt, name: str, command: str, lang: str = None):
 
         if intr is not None:
             if intr.name != name:
-                print(f"(cambiando de conversación a {ASSISTANTS[intr.name]['label']})")
+                print(f"(switching conversation to {ASSISTANTS[intr.name]['label']})")
             name = intr.name
             if intr.kind == "ptt":
                 text, lang = _ptt_turn(stt, name)
@@ -707,7 +707,7 @@ def run_session(stt, name: str, command: str, lang: str = None):
                 text, lang = intr.text, intr.lang
         else:
             if audio is None:
-                print(f"({ASSISTANTS[name]['label']}: sesión cerrada por silencio, llama de nuevo por su nombre)")
+                print(f"({ASSISTANTS[name]['label']}: session closed due to silence, call by name again)")
                 return
 
             text, lang = _transcribe_for(stt, audio, name)
@@ -718,7 +718,7 @@ def run_session(stt, name: str, command: str, lang: str = None):
             # de conversación en caliente en vez de ignorarlo.
             other_name, remainder = detect_wake_word(text, CONFIG["wake_word_ratio"])
             if other_name and other_name != name:
-                print(f"(cambiando de conversación a {ASSISTANTS[other_name]['label']})")
+                print(f"(switching conversation to {ASSISTANTS[other_name]['label']})")
                 name = other_name
                 text = remainder
 
@@ -757,7 +757,7 @@ def _resolve_allowed_languages(stt) -> set:
         invalid = user_set - default_set
         if invalid:
             print(
-                f"(aviso: en languages.txt hay idiomas que STT+TTS no soportan, se ignoran: {', '.join(sorted(invalid))})"
+                f"(warning: languages.txt contains languages unsupported by STT+TTS, ignoring: {', '.join(sorted(invalid))})"
             )
         base = (user_set & default_set) or default_set
 
@@ -766,7 +766,7 @@ def _resolve_allowed_languages(stt) -> set:
         own = set(assistant["config"]["languages"])
         invalid = own - base
         if invalid:
-            print(f"(aviso: {name} tiene idiomas no disponibles, se ignoran: {', '.join(sorted(invalid))})")
+            print(f"(warning: {name} has unavailable languages configured, ignoring: {', '.join(sorted(invalid))})")
         assistant["languages"] = (own & base) or base
         union |= assistant["languages"]
     return union or base
@@ -778,7 +778,7 @@ def cleanup(stt):
     descargue los modelos de los asistentes de inmediato. Sin esto último,
     Ollama corre como servicio aparte y mantiene el modelo en RAM/VRAM
     (keep_alive) aunque este script ya haya terminado."""
-    print("\nLiberando modelos de memoria...")
+    print("\nUnloading models from memory...")
 
     MIC.close()
     stt._model = None
@@ -790,7 +790,7 @@ def cleanup(stt):
         unload_ollama_model(model)
 
     gc.collect()
-    print("Modelos liberados.")
+    print("Models unloaded.")
 
 
 def main():
@@ -809,7 +809,7 @@ def main():
         qwen_engine().warm_up_async()
 
     stt.allowed_languages = _resolve_allowed_languages(stt)
-    print(f"Idiomas activos: {', '.join(sorted(stt.allowed_languages))}")
+    print(f"Active languages: {', '.join(sorted(stt.allowed_languages))}")
     for assistant in ASSISTANTS.values():
         if assistant["languages"] != stt.allowed_languages:
             print(f"  {assistant['label']}: {', '.join(sorted(assistant['languages']))}")
@@ -817,17 +817,17 @@ def main():
     WAKE_ALIASES, WAKE_EXCLUSIONS = load_wake_word_aliases(CONFIG["wake_words_file"])
     for name, aliases in WAKE_ALIASES.items():
         if aliases:
-            print(f"Variantes de \"{name}\" cargadas: {', '.join(sorted(aliases))}")
+            print(f"Loaded wake-word aliases for \"{name}\": {', '.join(sorted(aliases))}")
     if WAKE_EXCLUSIONS:
-        print(f"Palabras que nunca activan por parecido: {', '.join(sorted(WAKE_EXCLUSIONS))}")
+        print(f"Words excluded from fuzzy wake matching: {', '.join(sorted(WAKE_EXCLUSIONS))}")
     print()
 
     freq, dur = CONFIG["ack_beep"]
 
-    ways = [f"di '{name.capitalize()}'" for name, a in ASSISTANTS.items() if a["wake_word"]]
-    ways += [f"mantén {a['ptt_key']} ({a['label']})" for a in ASSISTANTS.values() if a["ptt_key"]]
+    ways = [f"say '{name.capitalize()}'" for name, a in ASSISTANTS.items() if a["wake_word"]]
+    ways += [f"hold {a['ptt_key']} ({a['label']})" for a in ASSISTANTS.values() if a["ptt_key"]]
     MIC.open()
-    print(f"\nListo. Para hablarme: {', '.join(ways)} (Ctrl+C para salir).\n")
+    print(f"\nReady. To talk to an assistant: {', '.join(ways)} (Ctrl+C to quit).\n")
     try:
         while True:
             try:
@@ -843,7 +843,7 @@ def main():
                 if not text:
                     continue
                 if name is None:
-                    print(f"(ignorado: {text})")
+                    print(f"(ignored: {text})")
                     continue
 
                 command = remainder
@@ -852,7 +852,7 @@ def main():
                     MIC.flush()  # que el propio pitido no cuente como el comando
                     audio = MIC.listen(timeout=CONFIG["followup_timeout"])
                     if audio is None:
-                        print(f"({ASSISTANTS[name]['label']}: no escuché ningún comando)")
+                        print(f"({ASSISTANTS[name]['label']}: no command heard)")
                         continue
                     command, lang = _transcribe_for(stt, audio, name)
                     if not command:
@@ -867,7 +867,7 @@ def main():
     finally:
         cleanup(stt)
 
-    print("Hasta luego.")
+    print("Goodbye.")
 
 
 if __name__ == "__main__":

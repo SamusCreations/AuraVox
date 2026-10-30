@@ -226,11 +226,11 @@ class Connection:
                     break
             self.tools = tools
             self.status = "ready"
-            log(f"{self.cfg['name']}: conectado ({self.server_info.get('name', '?')}), {len(tools)} herramienta(s)")
+            log(f"{self.cfg['name']}: connected ({self.server_info.get('name', '?')}), {len(tools)} tool(s)")
         except Exception as e:  # noqa: BLE001
             self.status = "error"
             self.error = str(e)[:500]
-            log(f"{self.cfg['name']}: no pude conectar: {e}", "warn")
+            log(f"{self.cfg['name']}: could not connect: {e}", "warn")
             self.close()
             self.status = "error"
 

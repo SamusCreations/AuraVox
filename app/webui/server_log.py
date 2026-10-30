@@ -105,10 +105,10 @@ def install(log_path: str = None, append: bool = False) -> None:
         try:
             os.makedirs(os.path.dirname(log_path), exist_ok=True)
             _file = open(log_path, "a" if append else "w", encoding="utf-8")
-            what = "reinicio por recarga en caliente" if append else "ejecución"
-            _file.write(f"# AuraVox (interfaz web) — {what} del {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            what = "hot-reload restart" if append else "run"
+            _file.write(f"# AuraVox (web UI) — {what} at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         except OSError as e:
-            sys.__stderr__.write(f"(aviso: no pude abrir el registro {log_path}: {e})\n")
+            sys.__stderr__.write(f"(warning: could not open log file {log_path}: {e})\n")
     if isinstance(sys.stdout, _Tee):
         return
     sys.stdout = _Tee(sys.stdout, "info")

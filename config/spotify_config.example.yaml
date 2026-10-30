@@ -1,4 +1,4 @@
-# Plantilla de credenciales de Spotify (se copia a config/spotify_config.yaml si no existe).
+# Spotify credentials template (automatically copied to config/spotify_config.yaml if missing).
 client_id: ""
 client_secret: ""
 premium: false

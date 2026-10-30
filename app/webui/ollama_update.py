@@ -166,37 +166,37 @@ def _worker() -> None:
         version, url, before = st["latest"], st["url"], st["current"]
         installer = _ready_installer(version)
         if installer:
-            _log(f"actualización a {version}: uso el instalador ya descargado ({installer})")
+            _log(f"update to {version}: using already downloaded installer ({installer})")
         else:
             _set(state="downloading", step="downloading")
-            _log(f"actualización a {version}: descargando {url}")
+            _log(f"update to {version}: downloading {url}")
             installer = _download(url, version)
         _set(state="verifying", step="verifying")
         ok, detail = _signature_ok(installer)
-        _log(f"firma del instalador: {detail}", "info" if ok else "error")
+        _log(f"installer signature: {detail}", "info" if ok else "error")
         if not ok:
-            raise RuntimeError(f"la firma digital del instalador no es válida ({detail})")
+            raise RuntimeError(f"installer digital signature is invalid ({detail})")
         _set(state="installing", step="installing")
-        _log(f"instalando Ollama {version} (se cierra Ollama un momento)…")
+        _log(f"installing Ollama {version} (Ollama will close briefly)…")
         log_file = os.path.join(DOWNLOAD_DIR, "install.log")
         os.makedirs(DOWNLOAD_DIR, exist_ok=True)
         proc = subprocess.run([installer, *INSTALL_ARGS, f"/LOG={log_file}"], timeout=1800, creationflags=NO_WINDOW)
         if proc.returncode != 0:
-            raise RuntimeError(f"el instalador terminó con el código {proc.returncode} (ver {log_file})")
+            raise RuntimeError(f"installer exited with code {proc.returncode} (see {log_file})")
         _set(state="restarting", step="restarting")
         now = _wait_api(45)
         if not now and os.path.isfile(APP_EXE):
-            _log("Ollama no volvió solo: lo abro")
+            _log("Ollama did not restart automatically: launching it")
             subprocess.Popen([APP_EXE], creationflags=NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0),
                              close_fds=True)
             now = _wait_api(90)
         if not now:
-            raise RuntimeError("se instaló pero Ollama no volvió a responder: ábrelo desde el menú Inicio")
+            raise RuntimeError("installed, but Ollama did not respond: launch it from the Start menu")
         _set(state="done", step="updated", current=now, latest=version)
-        _log(f"Ollama actualizado: {before} → {now}")
+        _log(f"Ollama updated: {before} → {now}")
     except Exception as e:  # noqa: BLE001 — se muestra tal cual en la interfaz
         _set(state="error", error=str(e))
-        _log(f"no se pudo actualizar Ollama: {e}", "error")
+        _log(f"could not update Ollama: {e}", "error")
 
 
 def start() -> dict:

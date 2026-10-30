@@ -125,11 +125,11 @@ def run_text_mode(name: str):
             wav_path = voice.speak(cfg["search_announcement"], reply_wav)
             winsound.PlaySound(wav_path, winsound.SND_FILENAME)
 
-    print(f"{cfg['label']} listo. Escribe tu mensaje (o 'salir' para terminar).\n")
+    print(f"{cfg['label']} ready. Type your message (or 'exit' to quit).\n")
     try:
         while True:
             try:
-                text = input("Tú> ").strip()
+                text = input("You> ").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             if text.lower() in ("salir", "exit", "quit", ""):
@@ -140,11 +140,11 @@ def run_text_mode(name: str):
             try:
                 reply = ask(name, history, on_tool_call=_announce_search, cfg=cfg, style="text")
             except requests.exceptions.ConnectionError:
-                print("No puedo conectar con Ollama. ¿Está corriendo el servicio ('ollama serve')?")
+                print("Cannot connect to Ollama. Is the service running ('ollama serve')?")
                 history.pop()
                 continue
             except requests.exceptions.RequestException as e:
-                print(f"(la petición a Ollama falló: {e}. Probá de nuevo.)")
+                print(f"(Ollama request failed: {e}. Please try again.)")
                 history.pop()
                 continue
 
@@ -155,13 +155,13 @@ def run_text_mode(name: str):
             wav_path = voice.speak(reply, reply_wav)
             winsound.PlaySound(wav_path, winsound.SND_FILENAME)
     finally:
-        print("Liberando el modelo de Ollama...")
+        print("Unloading model from Ollama...")
         unload_ollama_model(cfg["base_model"])
         voice.release()
         release_shared_tts()
         _qwen_engine().release()
 
-    print("Hasta luego.")
+    print("Goodbye.")
 
 
 if __name__ == "__main__":
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         try:
             disponibles = ", ".join(sorted(get_all_configs()))
         except Exception:
-            disponibles = "(no se pudo leer assistants.yaml)"
-        print(f"Uso: extras\\run_assistant.bat <nombre>\nDisponibles: {disponibles}")
+            disponibles = "(could not read assistants.yaml)"
+        print(f"Usage: extras\\run_assistant.bat <name>\nAvailable: {disponibles}")
         sys.exit(1)
     run_text_mode(sys.argv[1])

@@ -40,7 +40,7 @@ _runtime = {"checking": False, "updating": None}
 
 
 def _log(msg: str, level: str = "info") -> None:
-    server_log.log("modelos", msg, level)
+    server_log.log("models", msg, level)
 
 
 def _load() -> dict:
@@ -153,7 +153,7 @@ def set_auto(name: str, on: bool) -> dict:
         data = _load()
         data.setdefault("auto", {})[name] = bool(on)
         _save(data)
-    _log(f"{name}: actualización automática {'activada' if on else 'desactivada'}")
+    _log(f"{name}: automatic updates {'enabled' if on else 'disabled'}")
     return status()
 
 
@@ -172,10 +172,10 @@ def check(force: bool = False, only: str = None) -> dict:
             # Ollama cerrado: avisarlo una vez por caída, no en cada consulta.
             if not _runtime.get("ollama_down"):
                 _runtime["ollama_down"] = True
-                _log("Ollama no está abierto: no compruebo las actualizaciones hasta que vuelva", "warn")
+                _log("Ollama is not running: skipping update checks until it comes back", "warn")
             return status()
         if _runtime.pop("ollama_down", False):
-            _log("Ollama vuelve a responder")
+            _log("Ollama is responding again")
         names = [only] if only else list(installed)
         results = {}
         for name in names:
@@ -202,9 +202,9 @@ def check(force: bool = False, only: str = None) -> dict:
             _save(data)
         new = [n for n, e in results.items() if e.get("state") == "available"]
         if new:
-            _log(f"versión nueva disponible: {', '.join(new)}")
+            _log(f"new version available: {', '.join(new)}")
     except (requests.exceptions.RequestException, ValueError) as e:
-        _log(f"no pude comprobar las actualizaciones ({e})", "warn")
+        _log(f"could not check for model updates ({e})", "warn")
     finally:
         _runtime["checking"] = False
         _checking.release()
@@ -238,10 +238,10 @@ def after_update(prev: dict, ok: bool) -> None:
         else:
             freed += 1
     if now and now != prev["digest"]:
-        _log(f"{name} actualizado ({prev['digest'][:12]} → {now[:12]}); capas viejas borradas: {freed}"
-             + (f", {kept} siguen en disco (las usa otro modelo o OLLAMA_NOPRUNE está activo)" if kept else ""))
+        _log(f"{name} updated ({prev['digest'][:12]} → {now[:12]}); old layers removed: {freed}"
+             + (f", {kept} kept on disk (used by another model or OLLAMA_NOPRUNE is set)" if kept else ""))
     elif now:
-        _log(f"{name}: ya estaba en la última versión")
+        _log(f"{name}: already on the latest version")
     check(only=name)
 
 
@@ -257,19 +257,19 @@ def auto_loop(start_pull, pull_status) -> None:
                         continue
                     while pull_status().get("state") == "running":
                         time.sleep(10)
-                    _log(f"actualizando {name} automáticamente…")
+                    _log(f"auto-updating {name}…")
                     prev = before_update(name)
                     try:
                         start_pull(name)
                     except Exception as e:  # noqa: BLE001 — otro pull empezó justo: el próximo ciclo
-                        _log(f"no pude empezar la actualización de {name}: {e}", "warn")
+                        _log(f"could not start update for {name}: {e}", "warn")
                         after_update(prev, False)
                         continue
                     while pull_status().get("state") == "running":
                         time.sleep(5)
                     after_update(prev, pull_status().get("state") == "done")
             except Exception as e:  # noqa: BLE001 — que el ciclo no se muera
-                _log(f"error en la actualización automática: {e}", "warn")
+                _log(f"error in automatic model update loop: {e}", "warn")
             time.sleep(CHECK_EVERY)
 
     threading.Thread(target=run, name="model-updates", daemon=True).start()

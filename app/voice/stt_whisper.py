@@ -254,7 +254,7 @@ class WhisperSTT:
             return self._model
 
         cfg = self.config
-        print(f"Cargando modelo Whisper ({cfg['model_size']}) ...")
+        print(f"Loading Whisper model ({cfg['model_size']}) ...")
         t0 = time.time()
         try:
             model = WhisperModel(
@@ -269,13 +269,13 @@ class WhisperSTT:
             list(model.transcribe(np.zeros(16000, dtype=np.float32), language=cfg["language"])[0])
             self._model = model
         except Exception as e:
-            print(f"No se pudo usar {cfg['device']} ({e}), usando CPU.")
+            print(f"Could not use {cfg['device']} ({e}), falling back to CPU.")
             self._model = WhisperModel(
                 cfg["model_size"],
                 device="cpu",
                 compute_type=cfg["cpu_compute_type"],
             )
-        print(f"Modelo cargado en {time.time() - t0:.1f}s\n")
+        print(f"Model loaded in {time.time() - t0:.1f}s\n")
         return self._model
 
     def supported_languages(self) -> list:
@@ -366,7 +366,7 @@ class WhisperSTT:
         if cfg["language"] is not None:
             lang = cfg["language"]
             text, _score, _info = self._run(audio, lang)
-            self.last_detail = f"{lang} (fijo)"
+            self.last_detail = f"{lang} (fixed)"
             self.last_confident = True
         elif not allowed:
             text, _score, info = self._run(audio, None)
@@ -394,7 +394,7 @@ class WhisperSTT:
         cfg = self.config
         candidates, ranked = self._candidates(audio, hint, allowed)
         probs = dict(ranked)
-        detected = ", ".join(f"{c} {p:.2f}" for c, p in ranked[:3]) or "sin detección"
+        detected = ", ".join(f"{c} {p:.2f}" for c, p in ranked[:3]) or "no detection"
         self.last_confident = bool(ranked) and ranked[0][1] >= cfg["confident_language"]
         if len(candidates) == 1:
             lang = candidates[0]
@@ -420,16 +420,16 @@ class WhisperSTT:
         # quality of the work." y el asistente respondió a eso.
         if (probs.get(top, 0.0) < 0.25
                 and max(r[2] for r in results.values()) < cfg["noise_logprob"]):
-            self.last_detail = f"detección {detected}; parece ruido, se descarta"
+            self.last_detail = f"detected {detected}; looks like noise, discarded"
             return "", hint or top
         one_word = max(len(re.findall(r"\w+", r[1])) for r in results.values()) <= 1
         if (one_word and hint in results and results[hint][1]
                 and (top == hint or probs.get(top, 0.0) < 0.9)):
-            lang, why = hint, "frase de una palabra"
+            lang, why = hint, "single-word phrase"
         else:
-            lang, why = max(results, key=lambda c: results[c][0]), "mejor puntaje"
+            lang, why = max(results, key=lambda c: results[c][0]), "best score"
         tried = ", ".join(f"{c} {r[0]:.2f}" for c, r in results.items())
-        self.last_detail = f"detección {detected}; probé {tried} → {lang} ({why})"
+        self.last_detail = f"detected {detected}; tried {tried} → {lang} ({why})"
         return results[lang][1], lang
 
 
@@ -438,16 +438,16 @@ if __name__ == "__main__":
 
     stt = WhisperSTT()
     stt._load()
-    print("Habla cerca del micrófono (o Ctrl+C para salir)...\n")
+    print("Speak near the microphone (or Ctrl+C to quit)...\n")
     with MicStream(CONFIG) as mic:
         while True:
             try:
-                print("Escuchando...")
+                print("Listening...")
                 audio = mic.listen()
                 if audio is None:
-                    print("(ruido/click puntual descartado)\n")
+                    print("(transient noise/click discarded)\n")
                     continue
                 text, lang = stt.transcribe(audio)
-                print(f"Transcripción [{lang}]: {text}\n")
+                print(f"Transcript [{lang}]: {text}\n")
             except KeyboardInterrupt:
                 break

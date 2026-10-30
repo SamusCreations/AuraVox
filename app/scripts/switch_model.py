@@ -1,16 +1,14 @@
-"""
-Cambia el modelo de IA (LLM) base detrás de cualquier asistente de
-assistants.yaml.
+r"""
+Switches the base AI (LLM) model behind any assistant defined in
+config/assistants.yaml.
 
-Descarga el modelo nuevo si hace falta ("ollama pull"), actualiza el campo
-"base_model" del asistente elegido en assistants.yaml (solo esa línea —
-comentarios y el resto de la configuración quedan intactos) y hace una
-prueba rápida. Ya no usa Modelfiles ni "ollama create": cada asistente
-llama directo al modelo base en cada petición (ver assistant_common.py),
-así que cambiar de modelo es solo cambiar ese nombre.
+Downloads the new model if needed ("ollama pull"), updates the "base_model"
+field of the selected assistant in assistants.yaml (only that line — comments
+and the rest of the configuration remain untouched), and runs a quick smoke
+test.
 
-Ejecutar: switch_model.bat (o "python switch_model.py" directamente).
-Requiere que Ollama esté corriendo.
+Run: extras\switch_model.bat (or "python app/scripts/switch_model.py").
+Requires Ollama to be running.
 """
 import os
 import re
@@ -20,8 +18,6 @@ import sys
 import requests
 import yaml
 
-# Ejecutado como script (los .bat): la raíz del proyecto va al path para
-# poder importar el paquete `app` (el Python embebido no lo agrega solo).
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
@@ -39,9 +35,6 @@ def _read_raw_config() -> dict:
 
 
 def list_assistants() -> list:
-    # "shared_context"/"user_context" son configuración de nivel superior
-    # compartida por todos los asistentes, no un asistente en sí — se
-    # excluyen para no ofrecerlas como opción.
     return [name for name in _read_raw_config() if name not in NON_ASSISTANT_KEYS]
 
 
@@ -50,12 +43,12 @@ def current_base_model(name: str) -> str:
 
 
 def pull_model(name: str):
-    print(f"\nDescargando '{name}' desde Ollama (puede tardar según el tamaño)...\n")
+    print(f"\nDownloading '{name}' from Ollama (this may take a while depending on size)...\n")
     result = subprocess.run(["ollama", "pull", name])
     if result.returncode != 0:
         print(
-            f"\nNo se pudo descargar '{name}'. Revisa que el nombre sea exacto "
-            "(tal como aparece en 'ollama list' o en https://ollama.com/library) e intenta de nuevo."
+            f"\nCould not download '{name}'. Make sure the model name is exact "
+            "(as shown in 'ollama list' or at https://ollama.com/library) and try again."
         )
         sys.exit(1)
 
@@ -72,34 +65,31 @@ def show_model(name: str) -> dict:
 def warn_capabilities(name: str):
     caps = show_model(name).get("capabilities", [])
     if not caps:
-        print(f"\n(No pude leer las capacidades de '{name}' desde Ollama; sigo de todas formas.)")
+        print(f"\n(Could not read capabilities for '{name}' from Ollama; continuing anyway.)")
         return
     if "completion" not in caps:
         print(
-            f"\n⚠ '{name}' no aparece como modelo de chat/completion en Ollama "
-            "(¿modelo de embeddings o de otro tipo?). Puede que no funcione como asistente conversacional."
+            f"\n⚠ '{name}' does not appear as a chat/completion model in Ollama "
+            "(is it an embedding model?). It may not work as a conversational assistant."
         )
     if "tools" not in caps:
         print(
-            f"\n⚠ '{name}' no tiene la capacidad 'tools' en Ollama: la búsqueda web "
-            "(web_search) y los lugares cercanos (find_nearby_places) probablemente NO "
-            "funcionen bien con este modelo — puede que las describa en texto en vez de "
-            "usarlas, o que las ignore por completo."
+            f"\n⚠ '{name}' does not report the 'tools' capability in Ollama: web search "
+            "(web_search) and nearby places (find_nearby_places) will likely NOT work "
+            "properly with this model."
         )
 
 
 def update_base_model_in_file(name: str, new_base_model: str):
-    """Reemplaza SOLO la línea 'base_model:' dentro de la sección `name` de
-    assistants.yaml, dejando todo lo demás (comentarios, personality,
-    otros asistentes) exactamente igual — no se hace un round-trip
-    completo del YAML porque eso perdería los comentarios del archivo."""
+    """Replaces ONLY the 'base_model:' line inside section `name` of
+    assistants.yaml, leaving comments and all other assistants untouched."""
     with open(CONFIG_PATH, encoding="utf-8") as f:
         text = f.read()
 
     section_re = re.compile(rf"(?m)^{re.escape(name)}:\s*$")
     m = section_re.search(text)
     if not m:
-        print(f"No encontré la sección '{name}:' en assistants.yaml.")
+        print(f"Could not find section '{name}:' in assistants.yaml.")
         sys.exit(1)
 
     start = m.end()
@@ -109,7 +99,7 @@ def update_base_model_in_file(name: str, new_base_model: str):
 
     new_section_text, n = _BASE_MODEL_LINE_RE.subn(rf'\g<1>"{new_base_model}"', section_text, count=1)
     if n == 0:
-        print(f"No encontré 'base_model:' dentro de la sección '{name}:'.")
+        print(f"Could not find 'base_model:' inside section '{name}:'.")
         sys.exit(1)
 
     new_text = text[:start] + new_section_text + text[end:]
@@ -119,58 +109,58 @@ def update_base_model_in_file(name: str, new_base_model: str):
         f.write(text)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         f.write(new_text)
-    print(f"assistants.yaml actualizado (respaldo en '{os.path.basename(backup_path)}').")
+    print(f"assistants.yaml updated (backup saved to '{os.path.basename(backup_path)}').")
 
 
 def smoke_test(name: str):
-    print(f"\nProbando '{name}'...")
+    print(f"\nTesting '{name}'...")
     try:
         from app.core.assistant_engine import ask
-        reply = ask(name, [{"role": "user", "content": "Responde solo con la palabra: listo"}])
+        reply = ask(name, [{"role": "user", "content": "Reply with only the word: ready"}])
         print(f"{name}> {reply}")
     except Exception as e:
-        print(f"No se pudo probar '{name}' automáticamente ({e}). Revísalo a mano con run_{name}.bat si existe.")
+        print(f"Could not test '{name}' automatically ({e}). You can test it manually with extras\\run_assistant.bat {name}.")
 
 
 def main():
-    print("=== Cambiar el modelo de IA base de un asistente ===\n")
+    print("=== Switch an Assistant's Base AI Model ===\n")
     assistants = list_assistants()
     if not assistants:
-        print("No hay ningún asistente definido en assistants.yaml.")
+        print("No assistants are defined in assistants.yaml.")
         sys.exit(1)
 
-    print("Asistentes disponibles:")
+    print("Available assistants:")
     for i, name in enumerate(assistants, start=1):
-        print(f"  {i}) {name}  (modelo actual: {current_base_model(name)})")
-    choice = input(f"Elige uno [1-{len(assistants)}]: ").strip()
+        print(f"  {i}) {name}  (current model: {current_base_model(name)})")
+    choice = input(f"Choose one [1-{len(assistants)}]: ").strip()
     try:
         name = assistants[int(choice) - 1]
     except (ValueError, IndexError):
-        print("Opción no válida.")
+        print("Invalid option.")
         sys.exit(1)
 
     try:
         installed = ollama_installed_models()
     except requests.exceptions.RequestException:
-        print("No puedo conectar con Ollama. ¿Está corriendo ('ollama serve' o la app de Ollama)?")
+        print("Cannot connect to Ollama. Is it running ('ollama serve' or the Ollama app)?")
         sys.exit(1)
 
-    print("\nModelos ya instalados en Ollama:")
+    print("\nModels currently installed in Ollama:")
     for m in sorted(installed):
         print(f"  - {m}")
 
     new_base_model = input(
-        "\nNombre del modelo a usar (tal como en 'ollama list' o en https://ollama.com/library, "
-        "p. ej. qwen3.6:35b, llama3.1:8b): "
+        "\nModel name to use (as shown in 'ollama list' or https://ollama.com/library, "
+        "e.g. qwen3:14b, llama3.1:8b): "
     ).strip()
     if not new_base_model:
-        print("No escribiste nada, cancelado.")
+        print("No model name entered. Cancelled.")
         sys.exit(1)
 
     if not model_is_installed(new_base_model, installed):
-        confirm = input(f"'{new_base_model}' no está instalado. ¿Descargarlo ahora? [s/N]: ").strip().lower()
-        if confirm != "s":
-            print("Cancelado.")
+        confirm = input(f"'{new_base_model}' is not installed. Download it now? [y/N]: ").strip().lower()
+        if confirm not in ("y", "yes", "s", "si"):
+            print("Cancelled.")
             sys.exit(0)
         pull_model(new_base_model)
 
@@ -178,10 +168,10 @@ def main():
     update_base_model_in_file(name, new_base_model)
     smoke_test(name)
 
-    print(f"\nListo. '{name}' ahora usa '{new_base_model}'.")
-    print("No hace falta tocar nada más: voice_loop.py y assistant_engine.py leen")
-    print("assistants.yaml en cada arranque. Si las respuestas se sienten raras")
-    print("(muy planas/muy erráticas), ajusta temperature/top_k/top_p a mano ahí mismo.")
+    print(f"\nDone! '{name}' now uses '{new_base_model}'.")
+    print("No further steps needed: voice_loop.py and assistant_engine.py read")
+    print("assistants.yaml on every startup. If replies feel too flat or erratic,")
+    print("you can tune temperature/top_k/top_p in assistants.yaml or the Web UI.")
 
 
 if __name__ == "__main__":

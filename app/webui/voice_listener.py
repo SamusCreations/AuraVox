@@ -75,7 +75,7 @@ CONFIG = {
 }
 # ══════════════════════════════════════════════════════════════════════
 
-_LOG = "manos libres"
+_LOG = "hands-free"
 
 
 def _short(text: str, n: int = 70) -> str:
@@ -132,7 +132,7 @@ class VoiceListener:
                 json.dump({"muted": muted}, f)
             os.replace(tmp, SETTINGS_PATH)
         except OSError as e:
-            log(_LOG, f"no pude guardar si el micrófono está silenciado ({e})", "warn")
+            log(_LOG, f"could not save microphone mute state ({e})", "warn")
 
     # ── Ciclo de vida ──────────────────────────────────────────────────
     def start(self) -> None:
@@ -216,7 +216,7 @@ class VoiceListener:
                 self._emit_locked("state")
                 self._cond.notify_all()
         self._save_muted(muted)
-        log(_LOG, "micrófono silenciado desde la interfaz" if muted else "micrófono activado desde la interfaz")
+        log(_LOG, "microphone muted from Web UI" if muted else "microphone unmuted from Web UI")
         return self.state()
 
     def set_paused(self, client: str, paused: bool) -> dict:
@@ -233,8 +233,8 @@ class VoiceListener:
             if was != self._paused_locked():
                 self._emit_locked("state")
             self._cond.notify_all()
-        log(_LOG, "en pausa: la página está en la conversación por voz (usa su micrófono)" if paused
-            else "la página salió de la conversación por voz: vuelvo a escuchar")
+        log(_LOG, "paused: Web UI is in voice mode (using browser microphone)" if paused
+            else "Web UI exited voice mode: resuming PC microphone listening")
         return self.state()
 
     def canonicalize(self, text: str) -> str:
@@ -339,7 +339,7 @@ class VoiceListener:
         try:
             configs = load_assistants_config(paths.ASSISTANTS_YAML)
         except Exception as e:  # noqa: BLE001 — un error al editar a mano no debe tumbar la escucha
-            log(_LOG, f"no pude leer assistants.yaml ({e}); sigo con la configuración anterior", "warn")
+            log(_LOG, f"could not read assistants.yaml ({e}); keeping previous configuration", "warn")
             self._config_key = key
             return
         aliases, exclusions = ww.load_wake_words()
@@ -360,7 +360,7 @@ class VoiceListener:
         self._display = {name: a["label"].title() for name, a in assistants.items()}
         self._config_key = key
         ways = [n.title() for n in self._names_wake] + [f"{a['ptt_key']} ({n.title()})" for n, a in assistants.items() if a["ptt_key"]]
-        log(_LOG, f"se los llama con: {', '.join(ways) or '(nadie tiene activación por voz)'}")
+        log(_LOG, f"wake triggers: {', '.join(ways) or '(no assistant has voice activation enabled)'}")
 
     def _hint_for(self, name: str) -> str:
         a = self._assistants.get(name) or {}
@@ -380,8 +380,8 @@ class VoiceListener:
             status = "muted" if self._muted else "paused" if self._paused_locked() else "idle"
         if self._mic.is_open:
             self._mic.close()
-            why = {"muted": "silenciado", "paused": "la página usa su micrófono"}.get(status, "no hay ninguna página abierta")
-            log(_LOG, f"micrófono cerrado ({why})")
+            why = {"muted": "muted", "paused": "browser is using microphone"}.get(status, "no browser tab open")
+            log(_LOG, f"microphone closed ({why})")
         self._set_status(status)
 
     def _ensure_ready(self) -> bool:
@@ -391,10 +391,10 @@ class VoiceListener:
                 self._mic.open()
             except Exception as e:  # noqa: BLE001 — sin micrófono, sin dispositivo de entrada, etc.
                 self._set_status("error", str(e))
-                log(_LOG, f"no pude abrir el micrófono: {e}", "warn")
+                log(_LOG, f"could not open microphone: {e}", "warn")
                 self._stop.wait(5)
                 return False
-            log(_LOG, "micrófono abierto, escuchando")
+            log(_LOG, "microphone open, listening")
         if not self._stt_ready:
             self._set_status("loading")
             chat_runtime.load_stt()
@@ -427,7 +427,7 @@ class VoiceListener:
             if time.monotonic() - s["last"] > s["timeout"]:
                 label = (self._assistants.get(s["assistant"]) or {}).get("label", s["assistant"])
                 self._end_session_locked("silence")
-                log(_LOG, f"conversación con {label} cerrada por silencio; llámalo de nuevo por su nombre")
+                log(_LOG, f"conversation with {label} closed due to silence; call by name again")
 
     def _run(self) -> None:
         while not self._stop.is_set():
@@ -512,7 +512,7 @@ class VoiceListener:
             session = self._session
             payload = {"text": text, "lang": lang}
             if busy and not (wake or ptt_name):
-                note = f"ignorado mientras {'piensa' if busy == 'thinking' else 'habla'} (no empieza con un nombre)"
+                note = f"ignored while {'thinking' if busy == 'thinking' else 'speaking'} (does not start with wake word)"
             elif wake or ptt_name:
                 name = ptt_name or wake
                 if session:
@@ -521,13 +521,13 @@ class VoiceListener:
                     self._open_session_locked(name, auto_close=self._can_follow_up(name))
                 self._emit_locked("wake", **payload, assistant=name, remainder=remainder,
                                   ptt=bool(ptt_name), barge=bool(busy))
-                note = f"llamaron a {name}" + (" (interrumpe)" if busy else "")
+                note = f"called {name}" + (" (barge-in)" if busy else "")
             elif session:
                 session["last"] = time.monotonic()
                 self._emit_locked("utterance", **payload)
-                note = "turno de la conversación"
+                note = "conversation follow-up turn"
             else:
-                note = "ignorado (no empieza con el nombre de ningún asistente)"
+                note = "ignored (does not start with any assistant's wake word)"
         log(_LOG, f"«{_short(text)}» [{lang}] → {note}")
         if wake and not remainder and not ptt_name:
             self._beep()
@@ -552,7 +552,7 @@ class VoiceListener:
             return
         key = a["ptt_key"]
         self._set_status("hearing")
-        log(_LOG, f"push to talk de {a['label']} [{key}]: escuchando mientras la mantengas apretada")
+        log(_LOG, f"push-to-talk for {a['label']} [{key}]: listening while held down")
         audio = ptt.record_while_pressed(key, self._mic)
         ptt.wait_until_released(key)
         if audio is None:

@@ -35,15 +35,15 @@ def _admin(ctx) -> bool:
 def _do(what: str, fn) -> None:
     DONE.append(what)
     if DRY:
-        print(f"[pc_control] (prueba, no se hace) {what}")
+        print(f"[pc_control] (dry-run, skipped) {what}")
         return
     fn()
 
 
 def _press(vk: int, times: int = 1) -> None:
     if DRY:
-        DONE.append(f"tecla {vk:#x} x{times}")
-        print(f"[pc_control] (prueba, no se hace) tecla {vk:#x} x{times}")
+        DONE.append(f"key {vk:#x} x{times}")
+        print(f"[pc_control] (dry-run, skipped) key {vk:#x} x{times}")
         return
     user32 = ctypes.windll.user32
     for _ in range(times):

@@ -244,7 +244,7 @@ def _swap_out_locked(cfg):
             _ollama_unload(m)
         while _ollama_loaded() and time.time() - t0 < 15:
             time.sleep(0.3)
-        log(f"VRAM para ComfyUI: descargué de Ollama {', '.join(loaded)} en {time.time() - t0:.1f}s")
+        log(f"VRAM for ComfyUI: unloaded {', '.join(loaded)} from Ollama in {time.time() - t0:.1f}s")
     if cfg.get("release_voice") and not VRAM["voice"]:
         # Aparte: cerrar Qwen3-TTS espera si se está preparando (minutos),
         # y la imagen no tiene por qué esperarlo.
@@ -279,7 +279,7 @@ def _schedule_release(cfg):
     t.daemon = True
     VRAM["timer"] = t
     t.start()
-    log(f"ComfyUI queda listo {wait:.0f}s por si hay otra; después vuelve el asistente")
+    log(f"ComfyUI stays warm for {wait:.0f}s in case of another job; then assistant models reload")
 
 
 def _release():
@@ -302,7 +302,7 @@ def _release():
                     VRAM["remember"] = list(dict.fromkeys(VRAM["remember"] + remember))
                     VRAM["swapped"] = True
                     VRAM["voice"] = VRAM["voice"] or voice
-                    log("llegó otro pedido mientras volvía el asistente: espero a que termine")
+                    log("another ComfyUI job arrived while reloading assistant: waiting for it to finish")
                     return
             _ollama_load(m)
     if voice:
@@ -311,7 +311,7 @@ def _release():
             chat_runtime.prewarm_voices()
         except Exception:  # noqa: BLE001
             pass
-    log(f"ComfyUI liberó la VRAM; recargué {', '.join(remember) or 'nada'} en {time.time() - t0:.1f}s")
+    log(f"ComfyUI freed VRAM; reloaded {', '.join(remember) or 'nothing'} in {time.time() - t0:.1f}s")
 
 
 def on_chat():
@@ -322,7 +322,7 @@ def on_chat():
         return
     VRAM["hot"] = False
     C.free(cfg["url"], unload_models=True, free_memory=False)
-    log("chat mientras ComfyUI esperaba: sus modelos pasan a la RAM para que responda el asistente")
+    log("chat message while ComfyUI was warm: moving ComfyUI models to RAM so the assistant can reply")
 
 
 # ── El hilo que corre los trabajos ─────────────────────────────────────
@@ -371,7 +371,7 @@ def _fail(job, error):
             return
         job.update(status="cancelled" if job.get("_cancel") else "error", error=str(error)[:600], finished=time.time())
         _save()
-    log(f"trabajo {job['id']} ({job['kind']}): {job['error'] or 'cancelado'}", "warn" if job["status"] == "error" else "info")
+    log(f"job {job['id']} ({job['kind']}): {job['error'] or 'cancelled'}", "warn" if job["status"] == "error" else "info")
     _notify(job)
 
 
@@ -387,17 +387,17 @@ def _notify(job):
 def _run(job, cfg):
     url = cfg["url"]
     if C.stats(url, timeout=4) is None:
-        raise C.ComfyError("ComfyUI no responde")
+        raise C.ComfyError("ComfyUI is not responding")
     if cfg.get("vram_mode") == "swap":
         _cancel_release()
         _swap_out(cfg)
     graph = HOOKS["prepare"](job)
     if job.get("_cancel"):
-        raise C.ComfyError("cancelado")
+        raise C.ComfyError("cancelled")
     pid = C.queue_prompt(url, graph)
     with _cond:
         job.update(prompt_id=pid, status="running", started=time.time())
-    log(f"trabajo {job['id']} ({job['kind']}, {job['workflow']}) en ComfyUI: {pid}")
+    log(f"job {job['id']} ({job['kind']}, {job['workflow']}) queued in ComfyUI: {pid}")
     last_seen = time.time()
     queued_at = time.time()
     while True:
@@ -413,11 +413,11 @@ def _run(job, cfg):
                         msg = d.get("exception_message") or m[0]
                         if d.get("node_type"):
                             msg = f"{d['node_type']}: {msg}"
-                raise C.ComfyError(("cancelado" if job.get("_cancel") else msg.strip() or "error en ComfyUI")[:500])
+                raise C.ComfyError(("cancelled" if job.get("_cancel") else msg.strip() or "ComfyUI execution error")[:500])
             break
         if job.get("_cancel"):
             C.interrupt(url, pid)
-            raise C.ComfyError("cancelado")
+            raise C.ComfyError("cancelled")
         state, pos = C.queue_state(url, pid)
         if state:
             last_seen = time.time()
@@ -427,10 +427,10 @@ def _run(job, cfg):
                     # Mientras espera su turno (otros trabajos en ComfyUI) no corre el reloj.
                     job["started"] = time.time()
         elif time.time() - last_seen > LOST_AFTER:
-            raise C.ComfyError("ComfyUI perdió el trabajo (¿se reinició?)")
+            raise C.ComfyError("ComfyUI lost the job (did it restart?)")
     files = C.outputs_of(entry)
     if not files:
-        raise C.ComfyError("el flujo terminó sin guardar ninguna imagen ni video")
+        raise C.ComfyError("workflow finished without saving any image or video")
     name, sub, typ, kind = files[0]
     data = C.view(url, name, sub, typ)
     took = time.time() - job["started"]
@@ -439,5 +439,5 @@ def _run(job, cfg):
         job.update(status="done", result=result, finished=time.time(), progress=1.0, took=round(took, 1))
         _save()
     _learn(job["workflow"], took)
-    log(f"trabajo {job['id']} listo en {took:.0f}s (+{max(0, job['started'] - queued_at):.0f}s en cola): {result.get('name')}")
+    log(f"job {job['id']} completed in {took:.0f}s (+{max(0, job['started'] - queued_at):.0f}s queued): {result.get('name')}")
     _notify(job)

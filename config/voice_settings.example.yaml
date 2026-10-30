@@ -1,5 +1,5 @@
-# Ajustes de voz compartidos por todos los asistentes (plantilla limpia).
-# AuraVox copia este archivo a config/voice_settings.yaml al iniciar si no existe.
+# Shared voice settings across all assistants (clean template).
+# AuraVox automatically copies this file to config/voice_settings.yaml on startup if missing.
 
 stt_model: small
 qwen_tts:

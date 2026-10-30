@@ -42,14 +42,14 @@ def onnx_providers():
         import onnxruntime as ort
         from onnxruntime.capi import version_info
     except ImportError:
-        return ["CPUExecutionProvider"], "onnxruntime no está instalado con soporte GPU"
+        return ["CPUExecutionProvider"], "onnxruntime is not installed with GPU support"
 
     # Sin esto, con CUDA se imprime en cada carga un aviso inofensivo
     # ("N Memcpy nodes are added to the graph...") que ensucia la consola.
     ort.set_default_logger_severity(3)
 
     if "CUDAExecutionProvider" not in ort.get_available_providers():
-        return ["CPUExecutionProvider"], "este onnxruntime no trae soporte CUDA"
+        return ["CPUExecutionProvider"], "this onnxruntime build does not include CUDA support"
     if sys.platform != "win32":
         return ["CUDAExecutionProvider", "CPUExecutionProvider"], "GPU (CUDA)"
 
@@ -70,7 +70,7 @@ def onnx_providers():
             missing.append(dll)
     if missing:
         return ["CPUExecutionProvider"], (
-            f"CPU: onnxruntime-gpu {ort.__version__} necesita CUDA {major} y faltan {', '.join(missing)}"
+            f"CPU: onnxruntime-gpu {ort.__version__} requires CUDA {major} and is missing {', '.join(missing)}"
         )
     return ["CUDAExecutionProvider", "CPUExecutionProvider"], f"GPU (CUDA {major})"
 

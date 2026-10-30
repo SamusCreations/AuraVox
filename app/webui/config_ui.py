@@ -510,7 +510,7 @@ def measure_model(name: str) -> dict:
             requests.post(f"{OLLAMA_URL}/api/generate", json={"model": name, "keep_alive": 0}, timeout=30)
     except requests.exceptions.RequestException as e:
         raise store.ConfigError(tr("ollama_failed", error=e), status=502)
-    server_log.log("ollama", f"memoria medida de {name}")
+    server_log.log("ollama", f"measured memory for {name}")
     return model_memory()
 
 
@@ -548,11 +548,11 @@ def _pull_worker(model: str) -> None:
                         _pull["completed"] = data.get("completed", 0)
         with _pull_lock:
             _pull.update(state="done", status="success")
-        server_log.log("ollama", f"{model} descargado")
+        server_log.log("ollama", f"{model} downloaded")
     except Exception as e:  # noqa: BLE001 — se muestra tal cual en la interfaz
         with _pull_lock:
             _pull.update(state="error", error=str(e))
-        server_log.log("ollama", f"no se pudo descargar {model}: {e}", "error")
+        server_log.log("ollama", f"could not download {model}: {e}", "error")
 
 
 def start_pull(model: str) -> dict:
@@ -585,7 +585,7 @@ def delete_model(name: str) -> dict:
     except requests.exceptions.RequestException as e:
         raise store.ConfigError(tr("ollama_failed", error=e), status=502)
     used = [a["label"] or a["name"].upper() for a in store.load_state()["assistants"] if a["base_model"] == name]
-    server_log.log("modelos", f"modelo eliminado: {name}" + (f" (lo usaban {', '.join(used)})" if used else ""))
+    server_log.log("models", f"deleted model: {name}" + (f" (used by {', '.join(used)})" if used else ""))
     _show_cache.clear()
     return list_models()
 
@@ -606,7 +606,7 @@ def start_model_update(model: str) -> dict:
     except store.ConfigError:
         model_updates.after_update(prev, False)
         raise
-    server_log.log("modelos", f"actualizando {model}…")
+    server_log.log("models", f"updating {model}…")
 
     def wait():
         while pull_status()["state"] == "running":
@@ -915,7 +915,7 @@ class Handler(BaseHTTPRequestHandler):
             # navegador no la mandaba en la redirección: "falta la clave".
             self._cookies.append(f"{network.COOKIE}={network.settings()['token']}; Path=/; Max-Age=31536000; "
                                  "Secure; HttpOnly; SameSite=Lax")
-            server_log.log("red", f"dispositivo autorizado: {self.client_address[0]}")
+            server_log.log("network", f"authorized LAN device: {self.client_address[0]}")
             return True
         cookies = dict(c.strip().split("=", 1) for c in self.headers.get("Cookie", "").split(";") if "=" in c)
         if network.token_ok(cookies.get(network.COOKIE, "")):
@@ -1247,8 +1247,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = self._body()
                 voice_settings.update(**{k: data[k] for k in ("stt_model", "qwen_model", "qwen_python", "qwen_compile")
                                          if k in data})
-                server_log.log("voz", f"ajustes de voz: Whisper {voice_settings.stt_model()}, "
-                                      f"Qwen3-TTS {voice_settings.load()['qwen_tts']['model']}")
+                server_log.log("voice", f"voice settings: Whisper {voice_settings.stt_model()}, "
+                                        f"Qwen3-TTS {voice_settings.load()['qwen_tts']['model']}")
                 from app.voice.qwen_tts import engine as qwen_engine
 
                 qwen_engine().release()  # con el modelo o el Python nuevos la próxima vez
@@ -1265,7 +1265,7 @@ class Handler(BaseHTTPRequestHandler):
                 if before:
                     gone = file_store.forget(before)
                     if gone:
-                        server_log.log("chat", f"chat reiniciado: borré {gone} archivo(s) que se compartieron en él")
+                        server_log.log("chat", f"chat reset: deleted {gone} file(s) shared in it")
                 return self._send_json(result)
             if path.startswith(("/api/session", "/api/profile")):
                 return self._profiles(method, path, data)
@@ -1371,7 +1371,7 @@ class Handler(BaseHTTPRequestHandler):
             if not profiles.setup_needed():
                 raise store.ConfigError(tr("setup_done"), status=409)
             p = profiles.create(data.get("name"), "admin", str(data.get("pin") or ""), data.get("color") or "")
-            server_log.log("perfiles", f"primer perfil (administrador): {p['name']}")
+            server_log.log("profiles", f"first profile (admin): {p['name']}")
             self._set_session(profiles.login(p["id"], str(data.get("pin") or "")))
             return self._send_json({"ok": True})
         if method == "POST" and path == "/api/session":
@@ -1389,7 +1389,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._save_me(data)
         if method == "POST" and path == "/api/profiles":
             p = profiles.create(data.get("name"), data.get("role"), str(data.get("pin") or ""), data.get("color") or "")
-            server_log.log("perfiles", f"perfil nuevo: {p['name']} ({p['role']})")
+            server_log.log("profiles", f"new profile: {p['name']} ({p['role']})")
             return self._send_json({"state": self._state()})
         mp = re.fullmatch(r"/api/profiles/(p[0-9a-f]{8})", path)
         if mp and method == "PUT":
@@ -1406,7 +1406,7 @@ class Handler(BaseHTTPRequestHandler):
             lists.delete_owner(mp.group(1))
             routines.delete_owner(mp.group(1))
             store.transfer_owner(mp.group(1), self._sess["id"])  # sus asistentes no se pierden
-            server_log.log("perfiles", f"perfil borrado: {mp.group(1)}")
+            server_log.log("profiles", f"deleted profile: {mp.group(1)}")
             return self._send_json({"state": self._state()})
         return self._send_json({"error": tr("not_found")}, 404)
 
@@ -1449,7 +1449,7 @@ class Handler(BaseHTTPRequestHandler):
                 memory.remove(pid, mm.group(1))
             elif method == "DELETE" and path == "/api/memory":
                 memory.clear(pid)
-                server_log.log("memoria", f"{self._sess['name']} borró todo lo que recordaban de su perfil")
+                server_log.log("memory", f"{self._sess['name']} cleared all remembered facts for their profile")
             else:
                 return self._send_json({"error": tr("not_found")}, 404)
         except KeyError:
@@ -1508,7 +1508,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote((a['label'] or name) + '.auravox')}")
         self.end_headers()
         self.wfile.write(body)
-        server_log.log("asistentes", f"exportado: {name}{' (con documentos)' if with_docs else ''}")
+        server_log.log("assistants", f"exported: {name}{' (with documents)' if with_docs else ''}")
 
     def _import_assistant(self, data: dict) -> None:
         try:
@@ -1516,7 +1516,7 @@ class Handler(BaseHTTPRequestHandler):
         except assistant_io.ImportError_ as e:
             raise store.ConfigError(tr(e.key, **e.params))
         chat_runtime.prewarm_voices()
-        server_log.log("asistentes", f"importado: {result['name']}")
+        server_log.log("assistants", f"imported: {result['name']}")
         notes = [tr(k, **p) for k, p in result["notes"]]
         return self._send_json({"name": result["name"], "notes": notes, "model": result["model"], "state": self._state()})
 
@@ -1555,8 +1555,8 @@ class Handler(BaseHTTPRequestHandler):
                               data.get("min_role") if data.get("min_role") in plugins.ROLES else None)
             if isinstance(data.get("settings"), dict):
                 plugins.set_settings(mp.group(1), data["settings"])
-            server_log.log("plugins", f"{mp.group(1)}: {'activado' if data.get('enabled') else 'desactivado' if 'enabled' in data else ''}"
-                                      f"{' rol mínimo ' + data['min_role'] if data.get('min_role') else ''}")
+            server_log.log("plugins", f"{mp.group(1)}: {'enabled' if data.get('enabled') else 'disabled' if 'enabled' in data else ''}"
+                                      f"{' min_role ' + data['min_role'] if data.get('min_role') else ''}")
         else:
             return self._send_json({"error": tr("not_found")}, 404)
         return self._send_json({"plugins": plugins.public(), "folder": plugins.PLUGINS_DIR})
@@ -1584,7 +1584,7 @@ class Handler(BaseHTTPRequestHandler):
             except backup.RestoreError as e:
                 raise store.ConfigError(tr(str(e)))
             try:
-                return self._restore_from(tmp, "subido")
+                return self._restore_from(tmp, "uploaded")
             finally:
                 try:
                     os.remove(tmp)
@@ -1593,7 +1593,7 @@ class Handler(BaseHTTPRequestHandler):
         data = self._body()
         if method == "POST" and path == "/api/backups":
             b = backup.create("manual", attachments=bool(data.get("attachments")), secrets=bool(data.get("secrets")))
-            server_log.log("respaldo", f"respaldo creado: {b['name']} ({b['size'] / 1024 / 1024:.1f} MB, {b['files']} archivos)")
+            server_log.log("backup", f"backup created: {b['name']} ({b['size'] / 1024 / 1024:.1f} MB, {b['files']} files)")
             return self._send_json({"created": b, "backups": backup.list_backups(), "folder": backup.BACKUPS_DIR})
         if mb and method == "DELETE" and not mb.group(2):
             try:
@@ -1613,7 +1613,7 @@ class Handler(BaseHTTPRequestHandler):
             result = backup.restore(zip_path)
         except backup.RestoreError as e:
             raise store.ConfigError(tr(str(e)))
-        server_log.log("respaldo", f"restaurado {label}: {result['files']} archivos (antes se guardó {result['safety']})")
+        server_log.log("backup", f"restored {label}: {result['files']} files (safety backup saved to {result['safety']})")
         # Lo que se lee al arrancar o se guarda en memoria, de nuevo.
         from app.core import mcp_client, plugins
 
@@ -1678,7 +1678,7 @@ class Handler(BaseHTTPRequestHandler):
             ok = dg.fix_network_private()
         else:
             return self._send_json({"error": tr("not_found")}, 404)
-        server_log.log("diagnóstico", f"arreglar {fix}: {'listo' if ok else 'no se pudo'}{' (' + note + ')' if note else ''}",
+        server_log.log("diagnostics", f"fix {fix}: {'done' if ok else 'failed'}{' (' + note + ')' if note else ''}",
                        "info" if ok else "warn")
         return self._send_json({"ok": ok, "note": note, **self._diagnostics()})
 
@@ -1691,14 +1691,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if method == "POST" and path == "/api/mcp":
                 s = mcp_client.add_server(data)
-                server_log.log("mcp", f"servidor agregado: {s['name']} ({s['transport']})")
+                server_log.log("mcp", f"server added: {s['name']} ({s['transport']})")
             elif mm and method == "POST" and mm.group(2):
                 mcp_client.restart(mm.group(1))
             elif mm and method == "PUT" and not mm.group(2):
                 mcp_client.update_server(mm.group(1), data)
             elif mm and method == "DELETE" and not mm.group(2):
                 mcp_client.remove_server(mm.group(1))
-                server_log.log("mcp", f"servidor quitado: {mm.group(1)}")
+                server_log.log("mcp", f"server removed: {mm.group(1)}")
             else:
                 return self._send_json({"error": tr("not_found")}, 404)
         except ValueError as e:
@@ -1752,7 +1752,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise store.ConfigError(tr("knowledge_empty", name=fname))
             except OverflowError as e:
                 raise store.ConfigError(tr("knowledge_full", n=str(e)))
-            server_log.log("documentos", f"{name}: «{entry['name']}» ({entry['chars']} caracteres) agregado por {who}")
+            server_log.log("documents", f"{name}: «{entry['name']}» ({entry['chars']} chars) added by {who}")
         elif method == "DELETE" and sub and sub != "index":
             self._raw_body(MAX_BODY)
             knowledge.remove(name, sub)
@@ -1848,7 +1848,7 @@ class Handler(BaseHTTPRequestHandler):
                 key = ("s", q.lower(), lang)
                 if key not in self._geo_cache:
                     self._geo_cache[key] = assistant_common.search_places(q, lang)
-                    server_log.log("mapa", f"búsqueda «{q}»: {len(self._geo_cache[key])} resultado(s)")
+                    server_log.log("map", f"search «{q}»: {len(self._geo_cache[key])} result(s)")
                 return self._send_json({"results": self._geo_cache[key]})
             lat, lon = float(query["lat"][0]), float(query["lon"][0])
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
@@ -1856,7 +1856,7 @@ class Handler(BaseHTTPRequestHandler):
             key = ("r", round(lat, 5), round(lon, 5), lang)
             if key not in self._geo_cache:
                 self._geo_cache[key] = assistant_common.reverse_geocode(lat, lon, lang)
-                server_log.log("mapa", f"{lat:.6f}, {lon:.6f} → {self._geo_cache[key]['label'] or '(sin nombre)'}")
+                server_log.log("map", f"{lat:.6f}, {lon:.6f} → {self._geo_cache[key]['label'] or '(unnamed)'}")
             return self._send_json(self._geo_cache[key])
         except (KeyError, ValueError):
             raise store.ConfigError(tr("coord_range", limit=180))
@@ -1911,12 +1911,12 @@ class Handler(BaseHTTPRequestHandler):
         ref_text, _lang = "", lang
         try:
             pcm16k = decode_audio(io.BytesIO(data), sampling_rate=16000)[: int(hi * 16000)]
-            ref_text, _lang, _conf = chat_runtime.transcribe_array(pcm16k, [lang], lang, source="voz")
+            ref_text, _lang, _conf = chat_runtime.transcribe_array(pcm16k, [lang], lang, source="voice")
         except Exception as e:  # noqa: BLE001 — sin texto la voz igual sirve (solo el timbre)
-            server_log.log("voz", f"no pude transcribir el audio de referencia ({e})", "warn")
+            server_log.log("voice", f"could not transcribe reference audio ({e})", "warn")
         voice_settings.add_voice({"id": vid, "name": name, "audio": f"custom_voices/{vid}.wav", "ref_text": ref_text,
                                   "language": lang, "fallback_voice": fallback})
-        server_log.log("voz", f"voz clonada nueva «{name}» ({vid}, {len(audio) / 24000:.1f}s): «{ref_text[:80]}»")
+        server_log.log("voice", f"new cloned voice «{name}» ({vid}, {len(audio) / 24000:.1f}s): «{ref_text[:80]}»")
         self._send_json({"id": vid, "state": self._state()})
 
     def _edit_voice(self, method: str, vid: str, data: dict) -> None:
@@ -1928,7 +1928,7 @@ class Handler(BaseHTTPRequestHandler):
             if users:
                 raise store.ConfigError(tr("voice_in_use", names=", ".join(users)), status=409)
             voice_settings.delete_voice(vid)
-            server_log.log("voz", f"voz clonada borrada: {vid}")
+            server_log.log("voice", f"deleted cloned voice: {vid}")
         else:
             changes = {k: data[k] for k in ("name", "ref_text", "language", "fallback_voice") if k in data}
             if "language" in changes and changes["language"] not in _LANGUAGES:
@@ -1984,7 +1984,7 @@ class Handler(BaseHTTPRequestHandler):
         text = ww.canonicalize(text, names_all, exclusions, display, ww.DEFAULT_RATIO) if text else ""
         wake, rest = ww.find_wake_word(text, names_wake, exclusions, ww.DEFAULT_RATIO) if text else (None, "")
         if text:
-            server_log.log("oído (navegador)", f"«{text[:80]}» [{lang}] → {('llamaron a ' + wake) if wake else 'sin nombre'}")
+            server_log.log("stt (browser)", f"«{text[:80]}» [{lang}] → {('called ' + wake) if wake else 'no wake word'}")
         return self._send_json({"text": text, "lang": lang, "wake": wake, "remainder": rest or ""})
 
     def _transcribe_file(self, query) -> None:
@@ -2030,9 +2030,9 @@ class Handler(BaseHTTPRequestHandler):
             result = attachments.extract_text(name, data)
         except attachments.UnsupportedFile as e:
             raise store.ConfigError(tr("file_unsupported", name=name, error=e), status=415)
-        cut = " (recortado)" if result["truncated"] else ""
-        server_log.log("adjunto", f"«{name}» ({result['format']}, {len(data) / 1024:.0f} KB): "
-                                  f"{result['chars']} caracteres{cut}")
+        cut = " (truncated)" if result["truncated"] else ""
+        server_log.log("attachment", f"«{name}» ({result['format']}, {len(data) / 1024:.0f} KB): "
+                                     f"{result['chars']} chars{cut}")
         self._send_json(result)
 
     def _chat(self, data: dict) -> None:
@@ -2111,7 +2111,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # La página cortó la respuesta (barge-in, salió del chat): al
             # cerrarse la conexión con Ollama, deja de generar.
-            server_log.log("chat", f"{(cfg.get('label') or cfg.get('name') or '?').upper()}: la página cortó la respuesta")
+            server_log.log("chat", f"{(cfg.get('label') or cfg.get('name') or '?').upper()}: browser aborted the response")
         except requests.exceptions.ConnectionError:
             emit({"type": "error", "message": tr("ollama_down")})
         except requests.exceptions.RequestException as e:
@@ -2141,7 +2141,7 @@ class Handler(BaseHTTPRequestHandler):
             {"role": "user", "content": assistant_common.render_transcript(history, last=3)},
         ], schema, keep_alive=chat_runtime.CHAT_KEEP_ALIVE) or {}
         stop = data.get("intent") == "only_stop_talking"
-        server_log.log("chat", f"interrumpido: {'solo pidió que se calle' if stop else 'dijo algo más'} en {time.time() - t0:.1f}s "
+        server_log.log("chat", f"interrupted: {'only asked to stop talking' if stop else 'said something else'} in {time.time() - t0:.1f}s "
                                f"(«{str(data.get('reasoning', ''))[:100]}»)")
         return stop
 
@@ -2222,8 +2222,8 @@ def _reminder_fired(r: dict, missed: bool) -> None:
     el servidor por los altavoces."""
     event = notify.push(r["owner"], "reminder", missed=missed, reminder=reminders.public(r),
                         voice=r.get("voice"), speed=r.get("speed"), lang=r.get("lang"))
-    when = "perdido (el servidor estaba apagado)" if missed else "ahora"
-    server_log.log("recordatorio", f"{r['label'] or 'asistente'} → {r['kind']} {when}: «{r['text']}»")
+    when = "missed (server was off)" if missed else "now"
+    server_log.log("reminder", f"{r['label'] or 'assistant'} → {r['kind']} {when}: «{r['text']}»")
     if missed:
         return
 
@@ -2253,16 +2253,16 @@ def _speak_on_pc(r: dict) -> None:
             wav = chat_runtime.synthesize(r.get("say") or r["text"], normalize_voice(r.get("voice")) or "M5",
                                           float(r.get("speed") or 1.0), r.get("lang") or "es")
             winsound.PlaySound(wav, winsound.SND_MEMORY)
-            server_log.log("recordatorio", f"dicho por los altavoces de la PC: «{r.get('say') or r['text']}»")
+            server_log.log("reminder", f"spoken over PC speakers: «{r.get('say') or r['text']}»")
         except Exception as e:  # noqa: BLE001 — sin audio o sin voz: queda la notificación
-            server_log.log("recordatorio", f"no pude decirlo por los altavoces: {e}", "warn")
+            server_log.log("reminder", f"could not speak over PC speakers: {e}", "warn")
 
 
 def _safe(fn) -> None:
     try:
         fn()
     except Exception as e:  # noqa: BLE001
-        server_log.log("respaldo", f"no pude hacer el respaldo automático: {e}", "warn")
+        server_log.log("backup", f"could not create automatic backup: {e}", "warn")
 
 
 def _routine_due(pid: str, r: dict) -> None:
@@ -2282,13 +2282,13 @@ def _routine_due(pid: str, r: dict) -> None:
     ctx = skills.Ctx(profile=pid, role=p["role"], owner=pid, assistant=a["name"], cfg=cfg, style="voice",
                      lang=cfg["language"])
     history = [{"role": "user", "content": f"(It's {r['time']}: scheduled routine.) Run my routine \"{r['name']}\"."}]
-    server_log.log("rutina", f"{p['name']}: «{r['name']}» con {a['label'] or a['name']} ({r['time']})")
+    server_log.log("routine", f"{p['name']}: «{r['name']}» with {a['label'] or a['name']} ({r['time']})")
     try:
         with assistant_common.user_context_for(uc):
             reply, lang = chat_runtime.chat(cfg, store.load_state()["shared_context"], history, cfg["language"],
                                             style="voice", skill_ctx=ctx)
     except Exception as e:  # noqa: BLE001
-        server_log.log("rutina", f"no pude correr «{r['name']}»: {e}", "warn")
+        server_log.log("routine", f"could not run «{r['name']}»: {e}", "warn")
         return
     _reminder_fired({"id": "r000000", "owner": pid, "text": r["name"], "say": reply, "kind": "routine",
                      "due": time.time(), "repeat": "none", "assistant": a["name"],
@@ -2313,18 +2313,18 @@ def _bind(port: int) -> ThreadingHTTPServer:
             return _Server(("127.0.0.1", candidate), Handler)
         except OSError as e:
             last_error = e
-    raise SystemExit(f"No pude abrir ningún puerto entre {port} y {port + 9} ({last_error}).")
+    raise SystemExit(f"Could not bind any port between {port} and {port + 9} ({last_error}).")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Interfaz web de configuración de los asistentes.")
+    parser = argparse.ArgumentParser(description="AuraVox Web UI and local assistant server.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--no-browser", action="store_true", help="no abrir el navegador automáticamente")
+    parser.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
     parser.add_argument("--no-voice", action="store_true",
-                        help="sin escucha manos libres (no se abre el micrófono del servidor)")
-    parser.add_argument("--log", default=paths.WEBUI_LOG, help="archivo de registro (por defecto logs/webui_server.log)")
+                        help="disable hands-free listening (do not open the server microphone)")
+    parser.add_argument("--log", default=paths.WEBUI_LOG, help="log file path (default: logs/webui_server.log)")
     parser.add_argument("--no-reload", action="store_true",
-                        help="sin recarga en caliente (no se reinicia solo al cambiar el código)")
+                        help="disable hot reload (do not restart automatically on code changes)")
     args = parser.parse_args()
     global LISTENER
     existing = _running_instance(args.port)
@@ -2339,18 +2339,18 @@ def main():
 
     if existing == API_VERSION:
         url = f"http://127.0.0.1:{args.port}/"
-        print(f"La interfaz ya está abierta en {url} (en otra ventana); la abro en el navegador.")
+        print(f"The AuraVox Web UI is already running at {url} (in another window); opening it in your browser.")
         if not args.no_browser:
             webbrowser.open(url)
         return
     if existing is not None:
         print("=" * 72)
-        print(f"AVISO: hay una interfaz de una versión ANTERIOR abierta en el puerto {args.port}.")
-        print("Cierra esa ventana de AuraVox (y la pestaña vieja del navegador);")
-        print("mientras tanto esta se abre en otro puerto.")
+        print(f"WARNING: an OLDER version of the Web UI is running on port {args.port}.")
+        print("Close that AuraVox window (and the old browser tab);")
+        print("meanwhile, this instance will open on another port.")
         print("=" * 72)
 
-    print("AuraVox: preparando la interfaz...")
+    print("AuraVox: starting web interface...")
     _LANGUAGES[:] = pipeline_languages()
     store.load_state()  # falla temprano (con un mensaje claro) si assistants.yaml tiene un error
 
@@ -2375,15 +2375,15 @@ def main():
     atexit.register(mcp_client.stop_all)
     # Una lista cambió (por chat o desde otra página): las páginas abiertas la recargan.
     lists.on_change = lambda scope: notify.push("*" if scope == lists.HOME else scope, "lists", scope="home" if scope == lists.HOME else "personal")
-    print(f"\nAuraVox listo en {url}")
+    print(f"\nAuraVox ready at {url}")
     if network.status(local=True)["running"]:
-        print("Desde otros dispositivos de la red (el enlace con la clave y un código QR están en Ajustes compartidos):")
+        print("From other devices on your local network (the access link with key and QR code are in Shared Settings):")
         for lan_url in network.urls(with_key=False):
             print(f"  {lan_url}")
     if LISTENER.enabled:
-        print("Manos libres: con la página abierta, llama a cualquier asistente por su nombre "
-              "(se puede silenciar el micrófono desde la barra superior).")
-    print("Deja esta ventana abierta mientras la uses (Ctrl+C para cerrar).\n")
+        print("Hands-free: while the web page is open, call any assistant by name "
+              "(you can mute the microphone from the top bar).")
+    print("Keep this window open while using AuraVox (press Ctrl+C to quit).\n")
     if not args.no_browser:
         threading.Timer(0.5, webbrowser.open, args=(url,)).start()
     try:
@@ -2395,7 +2395,7 @@ def main():
         network.stop()
         server.server_close()
         chat_runtime.unload()
-    print("Interfaz cerrada.")
+    print("Web interface closed.")
 
 
 if __name__ == "__main__":

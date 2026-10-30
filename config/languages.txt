@@ -1,20 +1,19 @@
-# Idiomas que JARVIS/BELLA pueden reconocer (STT, Whisper) y hablar (TTS,
-# Supertonic-3). Un código ISO 639-1 por línea. Las líneas vacías o que
-# empiecen con "#" se ignoran.
+# Languages that assistants can recognize (STT, Whisper) and speak (TTS,
+# Supertonic-3). One ISO 639-1 code per line. Empty lines or lines starting
+# with "#" are ignored.
 #
-# Si este archivo no tiene NINGÚN código activo (como está ahora), el
-# pipeline usa automáticamente TODOS los idiomas que soportan a la vez
-# Whisper y Supertonic-3 (31 en total):
+# If this file has NO active codes (default), the pipeline automatically
+# enables ALL 31 languages supported simultaneously by both Whisper and
+# Supertonic-3:
 #
 #   ar, bg, cs, da, de, el, en, es, et, fi, fr, hi, hr, hu, id, it, ja, ko,
 #   lt, lv, nl, pl, pt, ro, ru, sk, sl, sv, tr, uk, vi
 #
-# Si escribes uno o más códigos aquí (sin "#" delante), el pipeline se
-# limita SOLO a esos — útil para reducir confusiones si sabes que siempre
-# vas a hablarle en uno o dos idiomas nada más. Cualquier código que
-# escribas pero que no esté en la lista de arriba (porque Whisper o
-# Supertonic no lo soportan) se ignora con un aviso en el log.
+# If you uncomment one or more codes below (without a leading "#"), the
+# pipeline restricts language detection ONLY to those codes — useful to reduce
+# false positives when you only speak one or two languages. Any code not in
+# the list above is ignored with a console warning.
 #
-# Ejemplo — descomenta estas 2 líneas para limitar solo a español e inglés:
+# Example — uncomment these 2 lines to restrict to Spanish and English only:
 # es
 # en

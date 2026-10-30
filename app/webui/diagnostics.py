@@ -414,7 +414,7 @@ def start_ollama() -> bool:
 
 
 def recommended_model() -> str:
-    """El modelo que conviene según la VRAM (ver CONTEXTO_PROYECTO.md)."""
+    """Recommended model based on total VRAM (see PROJECT_CONTEXT.md)."""
     raw = _run(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], 6).strip().splitlines()
     try:
         total = float(raw[0]) / 1024

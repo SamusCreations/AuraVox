@@ -1,8 +1,8 @@
 # ══════════════════════════════════════════════════════════════════════
-# Plantilla de configuración centralizada de asistentes (JARVIS, BELLA, ZIGGY).
-# Al clonar el proyecto, AuraVox copia automáticamente este archivo a
-# config/assistants.yaml si aún no existe (config/assistants.yaml está en
-# .gitignore para no subir tus datos personales ni ubicación a Git).
+# Centralized assistant configuration template (JARVIS, BELLA, ZIGGY).
+# On first launch after cloning, AuraVox automatically copies this file
+# to config/assistants.yaml if it does not exist yet (config/assistants.yaml
+# is git-ignored so your personal details and location are never committed).
 # ══════════════════════════════════════════════════════════════════════
 
 user_context:

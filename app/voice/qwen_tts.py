@@ -76,9 +76,9 @@ class QwenTTSEngine:
         python, model_dir = self.python(), self.model_dir()
         problem = ""
         if not python or not os.path.isfile(python):
-            problem = "no se encontró un Python con torch (configúralo en Ajustes compartidos → Voces)"
+            problem = "no Python with torch found (configure it in Shared Settings → Voices)"
         elif not os.path.isfile(os.path.join(model_dir, "config.json")):
-            problem = f"falta el modelo {os.path.basename(model_dir)} en cache/qwen-tts"
+            problem = f"missing model {os.path.basename(model_dir)} in cache/qwen-tts"
         return {"available": not problem, "problem": problem, "python": python,
                 "model": voice_settings.load()["qwen_tts"]["model"], "running": self._proc is not None,
                 "device": self.device, "ready": self.ready, "warming": self.warming}
@@ -89,7 +89,7 @@ class QwenTTSEngine:
         if not st["available"]:
             raise RuntimeError(st["problem"])
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
-        _say(f"arrancando el proceso de voces clonadas con {st['python']}")
+        _say(f"starting cloned-voice worker process with {st['python']}")
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         self._proc = subprocess.Popen(
             [st["python"], "-u", _WORKER], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -118,18 +118,18 @@ class QwenTTSEngine:
         threading.Thread(target=read_err, daemon=True).start()
         ready = self._read(self.START_TIMEOUT)
         if not ready.get("ok"):
-            raise RuntimeError(f"el proceso de Qwen3-TTS no arrancó: {ready.get('error')}")
-        _say(f"listo (torch {ready.get('torch')}, CUDA {'sí' if ready.get('cuda') else 'no'})")
+            raise RuntimeError(f"Qwen3-TTS worker failed to start: {ready.get('error')}")
+        _say(f"ready (torch {ready.get('torch')}, CUDA {'yes' if ready.get('cuda') else 'no'})")
 
     def _read(self, timeout: float) -> dict:
         try:
             line = self._lines.get(timeout=timeout)
         except queue.Empty:
             self._kill()
-            raise RuntimeError("Qwen3-TTS no respondió a tiempo")
+            raise RuntimeError("Qwen3-TTS did not respond in time")
         if line is None:
             self._kill()
-            raise RuntimeError("el proceso de Qwen3-TTS se cerró (ver la consola)")
+            raise RuntimeError("Qwen3-TTS worker process exited (see console)")
         return json.loads(line)
 
     def _kill(self) -> None:
@@ -167,15 +167,15 @@ class QwenTTSEngine:
                                                              [v["id"] for v in voice_settings.custom_voices()])), None)
         t0 = time.time()
         if compile_model:
-            _say("preparando el modelo (compilación: la primera vez ~4 min, después ~1,5 min)…")
+            _say("preparing model (compilation: ~4 min on first run, ~1.5 min afterwards)…")
         reply = self._call({"op": "load", "model_dir": self.model_dir(), "compile": compile_model,
                             "warmup_voice": self._voice_payload(warmup_voice) if warmup_voice else None}, timeout=900)
         if reply.get("device"):
             self.device = reply["device"]
             self.languages = reply.get("languages") or []
         self.ready = True
-        _say(f"modelo {os.path.basename(self.model_dir())} listo en {time.time() - t0:.1f}s ({self.device}, "
-             f"{'compilado' if reply.get('compiled') else 'sin compilar'})")
+        _say(f"model {os.path.basename(self.model_dir())} ready in {time.time() - t0:.1f}s ({self.device}, "
+             f"{'compiled' if reply.get('compiled') else 'uncompiled'})")
         return reply
 
     def warm_up_async(self) -> bool:
@@ -189,7 +189,7 @@ class QwenTTSEngine:
             try:
                 self.load()
             except Exception as e:  # noqa: BLE001
-                _say(f"no se pudo preparar: {e}")
+                _say(f"could not warm up model: {e}")
             finally:
                 self.warming = False
 
@@ -205,7 +205,7 @@ class QwenTTSEngine:
         if not self.ready:
             if not wait:
                 self.warm_up_async()
-                raise WarmingUp("la voz clonada se está preparando")
+                raise WarmingUp("cloned voice is warming up")
             if not self.warming:
                 self.load(voice)
         reply = self._call({
@@ -214,7 +214,7 @@ class QwenTTSEngine:
             "compile": voice_settings.load()["qwen_tts"]["compile"], "voice": self._voice_payload(voice),
         }, timeout=900)
         rtf = reply["seconds"] / max(reply["audio_seconds"], 0.01)
-        _say(f"{voice['id']} [{lang}] en {self.device}: {reply['seconds']:.2f}s para {reply['audio_seconds']:.1f}s de "
+        _say(f"{voice['id']} [{lang}] on {self.device}: {reply['seconds']:.2f}s for {reply['audio_seconds']:.1f}s of "
              f"audio (RTF {rtf:.2f})")
         return reply
 
@@ -277,9 +277,9 @@ class CustomVoice:
                 engine().synthesize(text, voice, lang, out_path)
                 return out_path
             except WarmingUp:
-                print(f"(voz clonada {self.code} preparándose; mientras, la de respaldo)")
+                print(f"(cloned voice {self.code} warming up; using fallback voice in the meantime)")
             except Exception as e:  # noqa: BLE001 — sin la voz clonada, que al menos hable
-                print(f"(voz clonada {self.code} no disponible: {e}; uso la de respaldo)")
+                print(f"(cloned voice {self.code} unavailable: {e}; using fallback voice)")
         return self._fallback.speak(text, out_path, lang=lang)
 
 

@@ -369,10 +369,10 @@ def call(name, args, ctx):
                   "hold": c["vram_mode"] == "swap"})
     secs = job["eta"] + (12 if c["vram_mode"] == "swap" and not J.VRAM["hot"] else 0)
     when = f"about {round(secs / 60)} minutes" if secs >= 120 else f"about {int(round(secs / 5) * 5) or 5} seconds"
-    imgs = (f" sobre «{src['name']}»" if src else "") + (
-        f" con referencia(s) {', '.join('«' + r['name'] + '»' for r in params['refs'])}" if params.get("refs") else "")
-    _log(f"{task} pedido con «{wf['name']}»{imgs} (~{secs:.0f}s): «{prompt[:90]}»"
-         + (f" — archivos del chat: {[f['name'] for f in getattr(ctx, 'files', None) or []]}" if task == "edit" else ""))
+    imgs = (f" on «{src['name']}»" if src else "") + (
+        f" with reference(s) {', '.join('«' + r['name'] + '»' for r in params['refs'])}" if params.get("refs") else "")
+    _log(f"{task} requested with «{wf['name']}»{imgs} (~{secs:.0f}s): «{prompt[:90]}»"
+         + (f" — chat files: {[f['name'] for f in getattr(ctx, 'files', None) or []]}" if task == "edit" else ""))
     what = {"image": "the image", "edit": "the edited image", "video": "the video"}[task]
     extra = (" It runs in the background: they can keep chatting and will get a notification." if task == "video" else "")
     if note:
@@ -588,7 +588,7 @@ def http(method, action, data, ctx):
         job = J.create(owner, old["kind"], old["workflow"], old["label"], params, auto_go=0)
         job["wf_name"] = old.get("wf_name")
         job["size"] = old.get("size")
-        _log(f"{old['kind']}: otra versión de «{old['label'][:80]}»")
+        _log(f"{old['kind']}: new variation of «{old['label'][:80]}»")
         return {"job": J.public(job), "hold": cfg()["vram_mode"] == "swap"}
     if action == "go" and method == "POST":
         return {"started": J.go([str(x) for x in (data.get("ids") or [])][:50], owner)}

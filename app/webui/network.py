@@ -45,7 +45,7 @@ _server = {"httpd": None, "thread": None, "error": None}
 
 
 def _log(msg: str, level: str = "info") -> None:
-    server_log.log("red", msg, level)
+    server_log.log("network", msg, level)
 
 
 # ── Ajustes ────────────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ def new_token() -> str:
     data = settings()
     data["token"] = secrets.token_urlsafe(18)
     _save(data)
-    _log("clave de acceso cambiada: los dispositivos conectados tienen que volver a abrir el enlace")
+    _log("access key changed: connected devices must reopen the link")
     return data["token"]
 
 
@@ -261,7 +261,7 @@ def ensure_certificate() -> None:
             return
     except (OSError, ValueError):
         pass
-    _log(f"generando el certificado HTTPS para {', '.join(names + ['127.0.0.1'] + ips)}…")
+    _log(f"generating HTTPS certificate for {', '.join(names + ['127.0.0.1'] + ips)}…")
     cert, key = make_certificate(names, ["127.0.0.1", *ips])
     os.makedirs(CERT_DIR, exist_ok=True)
     with open(CERT_FILE, "w", encoding="ascii") as f:
@@ -321,12 +321,12 @@ def start(handler_cls) -> None:
             httpd = LanServer(("0.0.0.0", int(cfg["port"])), handler_cls, ctx)
         except (OSError, ssl.SSLError, ValueError) as e:
             _server["error"] = str(e)
-            _log(f"no pude abrir el acceso por red en el puerto {cfg['port']}: {e}", "error")
+            _log(f"could not start LAN access on port {cfg['port']}: {e}", "error")
             return
         thread = threading.Thread(target=httpd.serve_forever, name="lan-https", daemon=True)
         thread.start()
         _server.update(httpd=httpd, thread=thread, error=None)
-    _log("acceso por red abierto: " + ", ".join(urls(with_key=False)))
+    _log("LAN access enabled: " + ", ".join(urls(with_key=False)))
 
 
 def stop() -> None:
@@ -336,7 +336,7 @@ def stop() -> None:
     if httpd:
         httpd.shutdown()
         httpd.server_close()
-        _log("acceso por red cerrado")
+        _log("LAN access closed")
 
 
 def set_enabled(on: bool, handler_cls) -> None:

@@ -81,7 +81,7 @@ def _load(model_dir: str, compile_model: bool = False, warmup_voice: dict = None
             compiled = True
         except Exception:  # noqa: BLE001 — sin compilar igual funciona (más lento)
             traceback.print_exc()
-            print("(no se pudo compilar el modelo; sigo sin compilar)", file=sys.stderr)
+            print("(could not compile model; continuing without compilation)", file=sys.stderr)
     _state["compiled"] = compiled
     langs = getattr(_state["model"].model, "get_supported_languages", None)
     return {
