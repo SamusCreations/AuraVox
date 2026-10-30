@@ -1,0 +1,11 @@
+{
+  "id": "weather",
+  "name": "Clima",
+  "description": "Clima actual y pronóstico de los próximos días donde vive el usuario (Open-Meteo, sin clave).",
+  "version": "1.0",
+  "author": "AuraVox",
+  "builtin": true,
+  "order": 20,
+  "min_role": "guest",
+  "tools": []
+}

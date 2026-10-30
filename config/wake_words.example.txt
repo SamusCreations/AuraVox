@@ -1,0 +1,65 @@
+# Variantes/apodos que también deben reconocerse como el nombre de cada
+# asistente, por si Whisper transcribe mal el nombre real. Una variante por
+# línea, bajo la sección del asistente ([jarvis], [bella], o el nombre de
+# cualquier asistente de assistants.yaml). No importan mayúsculas ni tildes
+# (se normalizan solas). "#" para comentarios. También se editan desde la
+# interfaz web.
+
+[jarvis]
+harvis
+yarvis
+yervis
+jarves
+jarbis
+charvis
+darvis
+harves
+
+[bella]
+vella
+beya
+bela
+vela
+beia
+bellla
+
+[ziggy]
+zigi
+ziggi
+zigy
+siggy
+zigui
+ziki
+jigi
+zighi
+cg
+
+[excluir]
+ella
+ellas
+ello
+elle
+bello
+bellos
+bellas
+belleza
+bala
+bola
+huella
+sella
+mella
+pella
+well
+fella
+hella
+varios
+paris
+jardin
+javier
+jarras
+marvin
+travis
+servis
+carvings
+tardes
+tarde

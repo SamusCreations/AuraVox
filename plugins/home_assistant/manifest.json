@@ -1,0 +1,17 @@
+{
+  "id": "home_assistant",
+  "name": "Home Assistant",
+  "description": "Enciende y apaga luces y enchufes, sube persianas, cambia el termostato, activa escenas y lee sensores de tu Home Assistant.",
+  "version": "1.0",
+  "author": "AuraVox",
+  "builtin": true,
+  "order": 40,
+  "default_enabled": false,
+  "min_role": "user",
+  "settings": [
+    {"key": "url", "type": "text", "label": {"es": "Dirección de Home Assistant", "en": "Home Assistant address"}, "placeholder": "http://homeassistant.local:8123"},
+    {"key": "token", "type": "secret", "label": {"es": "Token de acceso de larga duración", "en": "Long-lived access token"}, "help": {"es": "En Home Assistant: tu perfil → Seguridad → Tokens de acceso de larga duración → Crear token.", "en": "In Home Assistant: your profile → Security → Long-lived access tokens → Create token."}},
+    {"key": "exclude", "type": "text", "label": {"es": "Entidades que no se tocan (opcional)", "en": "Entities not to touch (optional)"}, "placeholder": "lock.puerta_principal, alarm_control_panel.casa"}
+  ],
+  "tools": []
+}

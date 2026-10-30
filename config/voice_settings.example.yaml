@@ -1,0 +1,9 @@
+# Ajustes de voz compartidos por todos los asistentes (plantilla limpia).
+# AuraVox copia este archivo a config/voice_settings.yaml al iniciar si no existe.
+
+stt_model: small
+qwen_tts:
+  model: 0.6B
+  python: ''
+  compile: true
+custom_voices: []

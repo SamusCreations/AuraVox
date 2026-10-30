@@ -1,0 +1,11 @@
+{
+  "id": "spotify",
+  "name": "Spotify",
+  "description": "Pone música en Spotify; con Premium y sesión iniciada (spotify_setup.bat) también pausa, salta y cambia el volumen.",
+  "version": "1.0",
+  "author": "AuraVox",
+  "builtin": true,
+  "order": 30,
+  "min_role": "guest",
+  "tools": []
+}

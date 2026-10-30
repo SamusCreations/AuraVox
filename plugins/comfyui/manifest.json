@@ -1,0 +1,24 @@
+{
+  "id": "comfyui",
+  "name": "ComfyUI (imágenes y video)",
+  "description": "Crea y edita imágenes y hace videos cortos con el ComfyUI instalado en tu PC, usando sus modelos y tus flujos. Opcional: si ComfyUI no está abierto, no hace nada.",
+  "version": "1.0",
+  "author": "AuraVox",
+  "builtin": true,
+  "order": 60,
+  "default_enabled": false,
+  "min_role": "user",
+  "settings": [
+    {"key": "url", "type": "text", "label": {"es": "Dirección de ComfyUI", "en": "ComfyUI address"}, "placeholder": "http://127.0.0.1:8188"},
+    {"key": "vram_mode", "type": "select", "label": {"es": "Memoria de la GPU (VRAM)", "en": "GPU memory (VRAM)"},
+     "options": [
+       {"value": "swap", "label": {"es": "Intercambio: descargar el asistente mientras dibuja (recomendado)", "en": "Swap: unload the assistant while drawing (recommended)"}},
+       {"value": "coexist", "label": {"es": "Convivir: no descargar nada (GPU con mucha VRAM)", "en": "Coexist: unload nothing (GPU with lots of VRAM)"}}
+     ]},
+    {"key": "reload_wait", "type": "number", "label": {"es": "Segundos antes de recargar el asistente", "en": "Seconds before reloading the assistant"}, "placeholder": "90",
+     "help": {"es": "Tras la última imagen, ComfyUI se queda con sus modelos este tiempo por si pides otra edición; después se libera y vuelve el asistente.", "en": "After the last image ComfyUI keeps its models this long in case you ask for another edit; then it is freed and the assistant comes back."}},
+    {"key": "release_voice", "type": "bool", "label": {"es": "Liberar también Whisper y la voz mientras dibuja", "en": "Also free Whisper and the voice while drawing"},
+     "help": {"es": "Gana ~1–3 GB de VRAM; se vuelven a cargar solos (la primera frase tarda un poco más).", "en": "Frees ~1–3 GB of VRAM; they load again by themselves (the first sentence takes a bit longer)."}}
+  ],
+  "tools": []
+}

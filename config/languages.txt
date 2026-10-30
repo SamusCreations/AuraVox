@@ -1,0 +1,20 @@
+# Idiomas que JARVIS/BELLA pueden reconocer (STT, Whisper) y hablar (TTS,
+# Supertonic-3). Un código ISO 639-1 por línea. Las líneas vacías o que
+# empiecen con "#" se ignoran.
+#
+# Si este archivo no tiene NINGÚN código activo (como está ahora), el
+# pipeline usa automáticamente TODOS los idiomas que soportan a la vez
+# Whisper y Supertonic-3 (31 en total):
+#
+#   ar, bg, cs, da, de, el, en, es, et, fi, fr, hi, hr, hu, id, it, ja, ko,
+#   lt, lv, nl, pl, pt, ro, ru, sk, sl, sv, tr, uk, vi
+#
+# Si escribes uno o más códigos aquí (sin "#" delante), el pipeline se
+# limita SOLO a esos — útil para reducir confusiones si sabes que siempre
+# vas a hablarle en uno o dos idiomas nada más. Cualquier código que
+# escribas pero que no esté en la lista de arriba (porque Whisper o
+# Supertonic no lo soportan) se ignora con un aviso en el log.
+#
+# Ejemplo — descomenta estas 2 líneas para limitar solo a español e inglés:
+# es
+# en

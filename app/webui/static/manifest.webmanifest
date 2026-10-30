@@ -1,0 +1,13 @@
+{
+  "name": "AuraVox",
+  "short_name": "AuraVox",
+  "description": "Asistentes de IA locales por chat y por voz",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0a16",
+  "theme_color": "#0b0a16",
+  "icons": [
+    { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

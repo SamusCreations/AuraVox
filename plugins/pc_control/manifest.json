@@ -1,0 +1,11 @@
+{
+  "id": "pc_control",
+  "name": "Control de la PC",
+  "description": "Volumen, pausa/siguiente de la música o el video que suene, abrir programas o páginas y bloquear la pantalla de la PC donde corre AuraVox. Solo administradores.",
+  "version": "1.0",
+  "author": "AuraVox",
+  "builtin": true,
+  "order": 50,
+  "min_role": "admin",
+  "tools": []
+}

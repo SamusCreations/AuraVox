@@ -1,0 +1,22 @@
+{
+  "id": "dice_example",
+  "name": "Dados (ejemplo)",
+  "description": "Plugin de ejemplo para quien quiera escribir uno: tira dados de cualquier cantidad de caras.",
+  "version": "1.0",
+  "author": "AuraVox",
+  "min_role": "guest",
+  "tools": [
+    {
+      "name": "roll_dice",
+      "description": "Roll one or more dice when the user asks for it (board games, deciding something at random).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "count": {"type": "integer", "description": "How many dice (1-20)."},
+          "sides": {"type": "integer", "description": "Sides of each die (2-1000), 6 by default."}
+        },
+        "required": []
+      }
+    }
+  ]
+}

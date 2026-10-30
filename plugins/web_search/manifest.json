@@ -1,0 +1,11 @@
+{
+  "id": "web_search",
+  "name": "Búsqueda web y lugares",
+  "description": "Busca en internet (DuckDuckGo) y encuentra lugares cercanos, direcciones y distancias (OpenStreetMap).",
+  "version": "1.0",
+  "author": "AuraVox",
+  "builtin": true,
+  "order": 10,
+  "min_role": "guest",
+  "tools": []
+}

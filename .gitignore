@@ -1,0 +1,64 @@
+# ══════════════════════════════════════════════════════════════════════
+# AuraVox — .gitignore
+# Ignora todos los datos personales, perfiles, historiales de chat,
+# contenido multimedia/archivos generados o subidos, voces clonadas,
+# memorias, recordatorios, listas, documentos RAG, credenciales, copias
+# de seguridad, cachés de modelos y entorno local de Python.
+# ══════════════════════════════════════════════════════════════════════
+
+# ── Configuraciones personales y estado generado por el usuario ──────
+# Se publican únicamente las plantillas *.example.*, languages.txt.
+config/assistants.yaml
+config/voice_settings.yaml
+config/spotify_config.yaml
+config/wake_words.txt
+config/*.bak
+config/*.tmp
+config/profiles.json
+config/reminders.json
+config/mcp.json
+config/plugins.json
+config/network.json
+config/voice_listener.json
+config/model_memory.json
+config/model_updates.json
+
+# ── Carpetas de datos del usuario y contenido generado en chats ──────
+config/chats/
+config/comfyui/
+config/custom_voices/
+config/memory/
+config/lists/
+config/routines/
+config/knowledge/
+config/certs/
+
+# ── Audio generado y muestras de voces clonadas personales ───────────
+audio/*.wav
+audio/*.mp3
+audio/*.ogg
+audio/*.webm
+audio/voice_previews/*/custom-*
+
+# ── Copias de seguridad, exportaciones (.auravox) y registros ────────
+backups/
+*.auravox
+*.auravox-backup.zip
+logs/
+*.log
+
+# ── Entorno embebido y cachés de modelos IA (HuggingFace/Whisper/TTS) ─
+python/
+cache/
+.venv/
+venv/
+
+# ── Bytecode de Python y archivos temporales del sistema ─────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.env.*
+.DS_Store
+Thumbs.db
+desktop.ini
