@@ -4361,6 +4361,61 @@ async function restoreChat(name, { onlyIfNewer = false } = {}) {
   if (S.view?.kind === "assistant" && S.view.name === name) renderChat();
 }
 
+// La biblioteca borró archivos (#/media, #/files): se quitan también de la
+// conversación abierta, igual que dashboard.strip_files en el servidor, para
+// que al guardarla no vuelvan las referencias.
+window.purgeChatFiles = (ids) => {
+  const gone = new Set(ids || []);
+  if (!gone.size || !CHAT.owner) return;
+  const idOf = (x) => (String(x?.url || "").match(/\/api\/files\/([0-9a-f]{24}(?:\.[a-z0-9]{1,8})?)/) || [])[1];
+  const hit = (x) => gone.has(idOf(x));
+  let changed = false;
+  const messages = [];
+  for (const m of CHAT.messages) {
+    let msg = m;
+    if (m.role === "file" && hit(m.data)) { changed = true; continue; }
+    if (m.role === "job" && m.data) {
+      if (Array.isArray(m.data.iters)) {
+        const iters = m.data.iters.filter((it) => !hit(it?.result));
+        if (iters.length !== m.data.iters.length) {
+          changed = true;
+          if (!iters.length) continue;
+          msg = { ...m, data: { ...m.data, iters } };
+        }
+      } else if (hit(m.data.result)) { changed = true; continue; }
+    }
+    if (Array.isArray(msg.files) && msg.files.some(hit)) {
+      changed = true;
+      msg = { ...msg, files: msg.files.filter((f) => !hit(f)) };
+    }
+    messages.push(msg);
+  }
+  const history = CHAT.history.map((h) => {
+    let out = h;
+    if (Array.isArray(h.files) && h.files.some(hit)) out = { ...out, files: h.files.filter((f) => !hit(f)) };
+    if (Array.isArray(h.attachments) && h.attachments.some(hit)) {
+      const imgs = h.attachments.filter((a) => a.kind === "image");
+      const drop = imgs.map((a, k) => (hit(a) ? k : -1)).filter((k) => k >= 0);
+      out = { ...out, attachments: h.attachments.filter((a) => !hit(a)) };
+      if (drop.length && Array.isArray(h.images)) {
+        if (h.images.length === imgs.length) out.images = h.images.filter((_, k) => !drop.includes(k));
+        else if (drop.length === imgs.length) out.images = [];
+        if (!out.images.length) delete out.images;
+      }
+    }
+    if (out !== h) changed = true;
+    return out;
+  });
+  if (!changed) return;
+  CHAT.messages = messages;
+  CHAT.history = history;
+  // El servidor ya tiene la versión limpia: lo pendiente (la vieja) no se manda.
+  if (CHAT_SAVE.pending?.owner === CHAT.owner) CHAT_SAVE.pending = null;
+  CHAT_SAVE.sig = "";
+  persistChat();
+  if (S.view?.kind === "assistant") renderChat();
+};
+
 // ── Cámara: tomar una foto y adjuntarla (modelos con visión) ──────────
 // En el celular se usa la cámara del sistema (input con `capture`, no
 // necesita permisos de la página); en la computadora, una vista previa con

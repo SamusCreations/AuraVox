@@ -89,6 +89,8 @@ MESSAGES = {
         # Plugin de ComfyUI (plugins/comfyui)
         "comfy_off": "No conectado: ComfyUI no responde en {url}. Ábrelo (o revisa la dirección) y vuelve a probar.",
         "comfy_on": "Conectado: ComfyUI {ver}, {gpu} (VRAM libre {vram}). {n} flujos; listos para imagen {image}, edición {edit} y video {video}.",
+        "comfy_path_bad": "Esa carpeta no parece ComfyUI: elige la que tiene main.py (o la portable que la contiene; en Desktop, su carpeta de datos).",
+        "comfy_cant_start": "No sé cómo arrancar esta instalación de ComfyUI (no encontré su lanzador). Ábrelo a mano.",
     },
     "en": {
         # Profiles (profiles.py)
@@ -169,6 +171,8 @@ MESSAGES = {
         # ComfyUI plugin (plugins/comfyui)
         "comfy_off": "Not connected: ComfyUI doesn't answer at {url}. Open it (or check the address) and try again.",
         "comfy_on": "Connected: ComfyUI {ver}, {gpu} (free VRAM {vram}). {n} workflows; ready for image {image}, edit {edit} and video {video}.",
+        "comfy_path_bad": "That folder doesn't look like ComfyUI: choose the one with main.py (or the portable folder that contains it; for Desktop, its data folder).",
+        "comfy_cant_start": "I don't know how to start this ComfyUI installation (no launcher found). Open it by hand.",
     },
 }
 

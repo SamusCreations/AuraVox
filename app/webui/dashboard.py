@@ -13,7 +13,7 @@ import re
 from app import paths
 from app.core import attachments, voice_settings
 from app.skills import knowledge, lists, memory, reminders, routines
-from app.webui import chat_store, file_store
+from app.webui import chat_store, file_store, profiles
 
 _FILE_ID_RE = re.compile(r"/api/files/([0-9a-f]{24}(?:\.[a-z0-9]{1,8})?)")
 _WORD_RE = re.compile(r"\S+")
@@ -521,6 +521,140 @@ def list_profile_files(owner: str, is_guest: bool, visible_assistants: list[dict
         for f in recent
         if f.get("id") and f.get("name")
     ]
+
+
+def _url_id(item) -> str | None:
+    return _extract_file_id(item.get("url") or "") if isinstance(item, dict) else None
+
+
+def strip_files(chat: dict, ids: set) -> tuple[dict, int]:
+    """Quita de una conversación guardada todo lo que apunta a los archivos
+    `ids`: el adjunto del mensaje (y su imagen para el modelo), el mensaje
+    del archivo convertido y la tarjeta de ComfyUI (o solo esa versión si
+    tiene varias). Devuelve (conversación, cuántas referencias quitó).
+    app.js (purgeChatFiles) hace lo mismo con la conversación abierta."""
+    removed = 0
+
+    def keep(item) -> bool:
+        nonlocal removed
+        if _url_id(item) in ids:
+            removed += 1
+            return False
+        return True
+
+    messages = []
+    for m in chat.get("messages") or []:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        data = m.get("data") if isinstance(m.get("data"), dict) else {}
+        if role == "file" and _url_id(data) in ids:
+            removed += 1
+            continue
+        if role == "job":
+            if isinstance(data.get("iters"), list):
+                iters = [it for it in data["iters"] if not (isinstance(it, dict) and _url_id(it.get("result")) in ids)]
+                if len(iters) != len(data["iters"]):
+                    removed += len(data["iters"]) - len(iters)
+                    if not iters:
+                        continue
+                    m = {**m, "data": {**data, "iters": iters}}
+            elif _url_id(data.get("result")) in ids:
+                removed += 1
+                continue
+        if isinstance(m.get("files"), list):
+            m = {**m, "files": [f for f in m["files"] if keep(f)]}
+        messages.append(m)
+
+    history = []
+    for h in chat.get("history") or []:
+        if not isinstance(h, dict):
+            continue
+        h = dict(h)
+        if isinstance(h.get("files"), list):
+            h["files"] = [f for f in h["files"] if keep(f)]
+        atts = h.get("attachments")
+        if isinstance(atts, list):
+            imgs = [a for a in atts if isinstance(a, dict) and a.get("kind") == "image"]
+            gone = [k for k, a in enumerate(imgs) if _url_id(a) in ids]
+            h["attachments"] = [a for a in atts if keep(a)]
+            # Las imágenes que ve el modelo van en el mismo orden que sus adjuntos.
+            if gone and isinstance(h.get("images"), list):
+                if len(h["images"]) == len(imgs):
+                    h["images"] = [x for k, x in enumerate(h["images"]) if k not in gone]
+                elif len(gone) == len(imgs):
+                    h.pop("images", None)
+                if not h.get("images"):
+                    h.pop("images", None)
+        history.append(h)
+    return {**chat, "messages": messages, "history": history}, removed
+
+
+def _forget_jobs_on_disk(ids: set, owner: str) -> int:
+    """Lo mismo que cu_jobs.forget cuando el plugin de ComfyUI está apagado
+    (sus trabajos siguen en jobs.json y mantendrían el archivo "en uso")."""
+    jobs_path = os.path.join(paths.CONFIG_DIR, "comfyui", "jobs.json")
+    jobs = _load_comfy_jobs()
+    keep, n = [], 0
+    for j in jobs:
+        mine = isinstance(j, dict) and (not j.get("owner") or j.get("owner") == owner) and j.get("status") not in (
+            "waiting", "queued", "starting", "running")
+        if mine and _url_id(j.get("result")) in ids:
+            n += 1
+            continue
+        params = j.get("params") if mine and isinstance(j.get("params"), dict) else {}
+        if isinstance(params.get("src"), dict) and params["src"].get("id") in ids:
+            params.pop("src")
+            n += 1
+        if isinstance(params.get("refs"), list):
+            refs = [r for r in params["refs"] if not (isinstance(r, dict) and r.get("id") in ids)]
+            n += len(params["refs"]) - len(refs)
+            params["refs"] = refs
+        keep.append(j)
+    if not n:
+        return 0
+    with open(jobs_path + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(keep, f, ensure_ascii=False, indent=1)
+    os.replace(jobs_path + ".tmp", jobs_path)
+    return n
+
+
+def delete_files(owner: str, is_guest: bool, visible_assistants: list[dict], ids) -> dict:
+    """Borra de la biblioteca del perfil los archivos `ids` (imágenes,
+    videos, documentos…): primero sus referencias en las conversaciones del
+    perfil y en los trabajos de ComfyUI, después el archivo del disco si
+    ningún otro perfil lo usa. Solo lo que está en la biblioteca de `owner`."""
+    if is_guest:
+        return {"deleted": [], "kept": [], "refs": 0}
+    dash = build_dashboard(owner, is_guest, visible_assistants)
+    mine = {x["id"] for x in dash.get("media") or []} | {x["id"] for x in dash.get("files") or []}
+    ids = {str(i) for i in ids or [] if file_store.ID_RE.match(str(i or ""))} & mine
+    if not ids:
+        return {"deleted": [], "kept": [], "refs": 0}
+    refs = 0
+    # Todas las conversaciones del perfil (también las de asistentes que ya no ve).
+    folder = profiles.chats_dir(owner)
+    for entry in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+        name = entry[:-5]
+        if not entry.endswith(".json") or not chat_store.NAME_RE.match(name):
+            continue
+        chat = chat_store.load(name, owner)
+        if not chat or not (file_store.ids_in(chat) & ids):
+            continue
+        clean, n = strip_files(chat, ids)
+        if n:
+            chat_store.save(name, clean, owner)
+            refs += n
+    try:
+        from app.core import plugins
+
+        refs += plugins.forget_files(ids, owner)
+    except Exception:  # noqa: BLE001 — un plugin roto no frena el borrado
+        pass
+    refs += _forget_jobs_on_disk(ids, owner)
+    file_store.forget(ids)
+    kept = sorted(i for i in ids if os.path.exists(os.path.join(file_store.FILES_DIR, i)))
+    return {"deleted": sorted(ids - set(kept)), "kept": kept, "refs": refs}
 
 
 def preview_file(file_id: str) -> dict | None:

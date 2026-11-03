@@ -12,6 +12,10 @@ herramientas no aparecen y AuraVox sigue igual.
   video) y sus entradas se detectan solas (cu_workflows.detect); en
   Ajustes → Plugins → ComfyUI se corrige el mapeo y se elige el modelo.
 - Ejecución y VRAM: cu_jobs.py (cola, sondeo, descargar/recargar Ollama).
+- Instalación: cu_locate.py encuentra ComfyUI en el disco (portable o
+  Desktop, o la carpeta elegida a mano en Ajustes): de ahí salen la
+  dirección si no se escribió una, los flujos y modelos aunque ComfyUI esté
+  cerrado y el botón para arrancarlo.
 - La página: tarjeta con progreso y cancelar, la imagen o el video queda
   como archivo del chat (file_store) y el video avisa al terminar.
 
@@ -21,6 +25,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +34,7 @@ if HERE not in sys.path:
 
 import cu_client as C  # noqa: E402
 import cu_jobs as J  # noqa: E402
+import cu_locate as L  # noqa: E402
 import cu_workflows as W  # noqa: E402
 
 from app import paths  # noqa: E402
@@ -42,13 +48,16 @@ TASKS = ("image", "edit", "video")
 DEFAULT_URL = "http://127.0.0.1:8188"
 IMAGE_EXT = ("png", "jpg", "jpeg", "webp", "bmp", "gif")
 _reg = {"at": 0.0, "url": None, "items": [], "error": ""}
+_found = {"at": 0.0, "items": [], "busy": False}
+_found_lock = threading.Lock()
+_started = {"at": 0.0}
 
 
 # ── Ajustes ────────────────────────────────────────────────────────────
 
 def cfg() -> dict:
     s = plugins.settings(PID)
-    url = str(s.get("url") or "").strip().rstrip("/") or DEFAULT_URL
+    url = str(s.get("url") or "").strip().rstrip("/") or auto_url()
     if not re.match(r"^https?://", url):
         url = "http://" + url
     try:
@@ -87,6 +96,82 @@ def _log(text, level="info"):
         print(f"[comfyui] {text}")
 
 
+# ── Dónde está instalado (ver cu_locate) ───────────────────────────────
+
+def detect(force=False, timeout=12.0) -> list:
+    """Las instalaciones encontradas (cacheadas; `force` vuelve a buscar)."""
+    with _found_lock:
+        if _found["at"] and not force:
+            return _found["items"]
+        items = L.find_all(timeout=timeout)
+        for it in items:
+            it["url"] = f"http://127.0.0.1:{it['port']}"
+            it["running"] = C.stats(it["url"], timeout=0.8) is not None
+        # La que está abierta primero; si no, la primera encontrada.
+        items.sort(key=lambda it: not it["running"])
+        _found.update(at=time.time(), items=items, inst_at=0)
+        if items:
+            _log(f"found ComfyUI ({items[0]['kind']}) at {items[0]['path']} — {items[0]['url']}")
+        else:
+            _log("no ComfyUI installation found on this PC")
+        return items
+
+
+def _detect_bg():
+    if _found["at"] or _found["busy"]:
+        return
+    _found["busy"] = True
+
+    def run():
+        try:
+            detect()
+        except Exception as e:  # noqa: BLE001
+            _log(f"install detection failed: {e}", "warn")
+        finally:
+            _found["busy"] = False
+
+    threading.Thread(target=run, name="comfyui-locate", daemon=True).start()
+
+
+def install(fresh=False) -> dict:
+    """La instalación en uso: la elegida a mano (si sigue ahí) o la
+    detectada. {} si no hay ninguna. Cacheada unos segundos (cfg() la usa
+    en cada turno)."""
+    if not fresh and time.time() - _found.get("inst_at", 0) < 30:
+        return dict(_found["inst"])
+    chosen = str((conf().get("install") or {}).get("path") or "")
+    if chosen:
+        inst = L.info(chosen)
+        inst = ({**inst, "url": f"http://127.0.0.1:{inst['port']}", "manual": True} if inst
+                else {"path": chosen, "manual": True, "missing": True})
+    else:
+        if not _found["at"]:
+            if _found["busy"]:
+                return {}
+            try:
+                detect(timeout=4.0)
+            except Exception:  # noqa: BLE001
+                return {}
+        inst = dict(_found["items"][0]) if _found["items"] else {}
+    _found.update(inst=inst, inst_at=time.time())
+    return dict(inst)
+
+
+def auto_url() -> str:
+    """La dirección cuando no se escribió una: la de la instalación."""
+    if not _found["at"] and not (conf().get("install") or {}).get("path"):
+        _detect_bg()  # la primera vez se busca de fondo (no frena el turno)
+        return DEFAULT_URL
+    return install().get("url") or DEFAULT_URL
+
+
+def _install_public(inst) -> dict:
+    if not inst:
+        return {}
+    keep = ("kind", "path", "base", "data", "launcher", "port", "url", "version", "manual", "missing", "running")
+    return {**{k: inst.get(k) for k in keep if k in inst}, "can_start": L.can_start(inst)}
+
+
 # ── Flujos disponibles ─────────────────────────────────────────────────
 
 def registry(force=False) -> list:
@@ -99,10 +184,14 @@ def registry(force=False) -> list:
     items = []
     for t in W.auto_templates(info, C.models(info)):
         items.append({"id": t["id"], "name": t["name"], "source": "auravox", "graph": t["graph"], "suggested": t["task"]})
-    for name in C.user_workflows(c["url"]):
+    names = C.user_workflows(c["url"])
+    # Si la API no los da (versión vieja, otra carpeta de usuario), del disco.
+    inst = install() if not names else {}
+    for name in names or L.disk_workflows(inst):
         try:
-            items.append({"id": "user:" + name, "name": name[:-5], "source": "comfyui", "ui": C.user_workflow(c["url"], name)})
-        except C.ComfyError as e:
+            ui = C.user_workflow(c["url"], name) if names else L.read_workflow(inst, name)
+            items.append({"id": "user:" + name, "name": name[:-5], "source": "comfyui", "ui": ui})
+        except (C.ComfyError, OSError, ValueError) as e:
             items.append({"id": "user:" + name, "name": name[:-5], "source": "comfyui", "error": str(e)})
     os.makedirs(FOLDER, exist_ok=True)
     for f in sorted(os.listdir(FOLDER)):
@@ -504,6 +593,11 @@ def _notify(job):
     notify.push(job["owner"] if job["owner"] != "*" else "*", "comfyui", job=J.public(job))
 
 
+def forget_files(ids, owner):
+    """Se borraron de la biblioteca (ver dashboard.delete_files)."""
+    return J.forget(set(ids), owner)
+
+
 J.HOOKS.update(cfg=cfg, prepare=_prepare, finish=_finish, notify=_notify, log=_log, dir=DATA_DIR)
 
 
@@ -512,7 +606,7 @@ J.HOOKS.update(cfg=cfg, prepare=_prepare, finish=_finish, notify=_notify, log=_l
 def check(settings):
     from app.webui.i18n import tr
 
-    url = str(settings.get("url") or "").strip().rstrip("/") or DEFAULT_URL
+    url = str(settings.get("url") or "").strip().rstrip("/") or auto_url()
     if not re.match(r"^https?://", url):
         url = "http://" + url
     st = C.stats(url, timeout=4)
@@ -552,8 +646,14 @@ def _admin_state(force=False):
     st = C.stats(c["url"], timeout=3)
     out = {"connected": bool(st), "url": c["url"], "settings": c, "vram": J.vram_state(), "tasks": conf()["tasks"],
            "folder": FOLDER, "stats": st and {"version": (st.get("system") or {}).get("comfyui_version"),
-                                             "devices": st.get("devices") or []}}
+                                             "devices": st.get("devices") or []},
+           "install": _install_public(install()), "detecting": _found["busy"], "url_auto": not plugins.settings(PID).get("url"),
+           "installs": [_install_public(x) for x in _found["items"]], "starting": not st and time.time() - _started["at"] < 150}
     if not st:
+        # Cerrado: lo que se puede leer del disco (flujos guardados y modelos).
+        inst = install()
+        if inst and not inst.get("missing"):
+            out["disk"] = {"workflows": L.disk_workflows(inst), "models": L.disk_models(inst)}
         return out
     try:
         items = registry(force=force)
@@ -566,6 +666,52 @@ def _admin_state(force=False):
     out["models"] = C.models(info)
     out["usable"] = {t: [w["id"] for w in usable(t, data)] for t in TASKS}
     return out
+
+
+def _install_action(action, data):
+    """Ajustes → Plugins → ComfyUI → Instalación: buscar, elegir, arrancar."""
+    from app.webui.i18n import tr
+
+    if action == "locate":
+        detect(force=True)
+        install(fresh=True)
+        _reg["at"] = 0
+        return _admin_state()
+    if action == "browse":
+        try:
+            return L.browse(str(data.get("path") or ""))
+        except OSError:
+            return 400, {"error": tr("comfy_path_bad")}
+    if action == "install":
+        path = str(data.get("path") or "").strip()[:500]
+        conf_ = conf()
+        if path:
+            inst = L.info(path)
+            if not inst:
+                return 400, {"error": tr("comfy_path_bad")}
+            conf_["install"] = {"path": inst["path"]}
+            _log(f"install chosen by hand: {inst['path']} ({inst['kind']})")
+        else:
+            conf_.pop("install", None)
+            _log("install back to automatic detection")
+        save_conf(conf_)
+        install(fresh=True)
+        _reg["at"] = 0
+        return _admin_state()
+    if action == "start":
+        if C.stats(cfg()["url"], timeout=1.5):
+            return _admin_state()
+        inst = install(fresh=True)
+        if not L.can_start(inst):
+            return 400, {"error": tr("comfy_cant_start")}
+        try:
+            what = L.start(inst)
+        except OSError as e:
+            return 500, {"error": f"{tr('comfy_cant_start')} ({e})"}
+        _started["at"] = time.time()
+        _log(f"starting ComfyUI: {what}")
+        return _admin_state()
+    return 404, {"error": "not_found"}
 
 
 def http(method, action, data, ctx):
@@ -598,6 +744,8 @@ def http(method, action, data, ctx):
         return 403, {"error": "admin"}
     if action == "admin":
         return _admin_state(force=bool(data.get("refresh")))
+    if method == "POST" and action in ("locate", "browse", "install", "start"):
+        return _install_action(action, data)
     if action == "tasks" and method == "POST":
         conf_ = conf()
         for t in TASKS:

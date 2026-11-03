@@ -1991,7 +1991,7 @@ NOTIFY_HANDLERS.comfyui = (ev) => {
 };
 
 // ── Ajustes → Plugins → ComfyUI: modelos, flujos y mapeo ──────────────
-const CU = { st: null, loading: false, open: {} };
+const CU = { st: null, loading: false, open: {}, path: null, timer: null };
 const CU_ROLES = ["prompt", "negative", "seed", "width", "height", "length", "fps", "image", "image2", "image3", "model", "model2", "steps", "cfg", "denoise"];
 const CU_TASKS = ["image", "edit", "video"];
 
@@ -2008,11 +2008,11 @@ async function cuLoad(refresh = false) {
   cuRender();
 }
 
-async function cuPost(action, body) {
+async function cuPost(action, body, okMsg = t("pl.saved")) {
   try {
     CU.st = await api("POST", `/api/plugin/comfyui/${action}`, body);
     cuRender();
-    toast(t("pl.saved"));
+    toast(okMsg);
   } catch (ex) {
     toast(ex.message, "error");
   }
@@ -2035,8 +2035,10 @@ function cuRender() {
     : `<span class="badge bad">${esc(t("cu.disconnected"))}</span> <span>${esc(t("cu.not_running", { url: st.url || "" }))}</span>`;
   const refresh = `<button class="btn btn-sm" type="button" data-cu="refresh" ${CU.loading ? "disabled" : ""}>${esc(t(CU.loading ? "loading" : "cu.refresh"))}</button>`;
   const vr = st.vram?.swapped ? `<small class="note">${esc(t("cu.swapped", { models: (st.vram.remember || []).join(", ") || "—" }))}</small>` : "";
+  cuWatchStart(st);
   if (!st.connected || !st.workflows) {
-    box.innerHTML = `<div class="cu-head">${head}${refresh}</div>${vr}${st.error ? `<small class="err">${esc(st.error)}</small>` : ""}`;
+    box.innerHTML = `<div class="cu-head">${head}${refresh}</div>${vr}${st.error ? `<small class="err">${esc(st.error)}</small>` : ""}
+      ${cuInstall(st)}${cuDisk(st)}`;
     return;
   }
   const wfs = st.workflows;
@@ -2077,6 +2079,7 @@ function cuRender() {
       ${CU.open[w.id] ? cuMapping(w) : ""}</div>`;
   }).join("");
   box.innerHTML = `<div class="cu-head">${head}${refresh}</div>${vr}
+    ${cuInstall(st)}
     <h4>${esc(t("cu.tasks"))}</h4><p class="note">${esc(t("cu.tasks_sub"))}</p>
     <div class="cu-tasks">${taskRows}</div>
     <div class="mcp-acts"><button class="btn btn-sm btn-primary" type="button" data-cu="save-tasks">${esc(t("pl.save"))}</button></div>
@@ -2084,6 +2087,109 @@ function cuRender() {
     <div class="cu-wfs">${wfRows}</div>
     <div class="mcp-acts"><label class="btn btn-sm">${esc(t("cu.import"))}<input type="file" accept=".json,application/json" data-cu-import hidden></label>
       <small class="note">${esc(t("cu.import_sub", { folder: st.folder }))}</small></div>`;
+}
+
+// Dónde está ComfyUI (ver plugins/comfyui/cu_locate.py): lo detectado
+// (portable o Desktop), o la carpeta elegida a mano con el explorador de
+// carpetas de la app; y el botón para arrancarlo si está cerrado.
+function cuInstall(st) {
+  const inst = st.install || {};
+  const found = inst.path && !inst.missing;
+  const kind = found ? t(`cu.kind_${inst.kind || "portable"}`) : "";
+  const status = st.detecting
+    ? `<small class="note">${esc(t("cu.detecting"))}</small>`
+    : inst.missing
+      ? `<small class="err">${esc(t("cu.path_missing", { path: inst.path }))}</small>`
+      : found
+        ? `<div class="cu-inst-found"><span class="badge good">${esc(kind)}</span>${inst.version ? `<span class="badge">v${esc(inst.version)}</span>` : ""}
+            <span class="badge">${esc(t(inst.manual ? "cu.path_manual" : "cu.path_auto"))}</span>
+            <code class="cu-path" title="${esc(inst.path)}">${esc(inst.path)}</code>
+            <small class="note">${esc(t("cu.inst_url", { url: inst.url || "" }))}${st.url_auto ? ` · ${esc(t("cu.url_from_inst"))}` : ""}</small></div>`
+        : `<small class="note">${esc(t("cu.not_found"))}</small>`;
+  const others = (st.installs || []).filter((x) => x.path !== inst.path);
+  const start = !st.connected && found && inst.can_start
+    ? `<button class="btn btn-sm btn-primary" type="button" data-cu="start" ${st.starting ? "disabled" : ""}>${svgIcon("play", 15)} ${esc(t(st.starting ? "cu.starting" : "cu.start"))}</button>`
+    : "";
+  const value = CU.path ?? (inst.manual ? inst.path : "");
+  return `<div class="cu-inst"><h4>${svgIcon("folder", 15)} ${esc(t("cu.install"))}</h4>
+    <p class="note">${esc(t("cu.install_sub"))}</p>${status}
+    ${others.length ? `<div class="cu-inst-others">${others.map((x) => `<div class="cu-inst-other"><span class="badge">${esc(t(`cu.kind_${x.kind}`))}</span>
+      <code class="cu-path" title="${esc(x.path)}">${esc(x.path)}</code>
+      <button class="link" type="button" data-cu-use="${esc(x.path)}">${esc(t("cu.use_this"))}</button></div>`).join("")}</div>` : ""}
+    <div class="cu-inst-row">
+      <input class="text-input" type="text" data-cu-path value="${esc(value)}" placeholder="${esc(t("cu.path_ph"))}"
+        aria-label="${esc(t("cu.path"))}" autocomplete="off" spellcheck="false">
+      <button class="btn btn-sm" type="button" data-cu="browse">${svgIcon("folder", 15)} ${esc(t("cu.browse"))}</button>
+      <button class="btn btn-sm" type="button" data-cu="path-save">${svgIcon("check", 15)} ${esc(t("cu.path_save"))}</button>
+    </div>
+    <div class="mcp-acts">${start}
+      <button class="btn btn-sm" type="button" data-cu="locate" ${st.detecting ? "disabled" : ""}>${svgIcon("search", 15)} ${esc(t("cu.detect"))}</button>
+      ${inst.manual ? `<button class="btn btn-sm" type="button" data-cu="path-auto">${esc(t("cu.path_auto_btn"))}</button>` : ""}</div></div>`;
+}
+
+// Con ComfyUI cerrado: los flujos y modelos que hay en su carpeta.
+function cuDisk(st) {
+  const d = st.disk;
+  if (!d) return "";
+  const models = Object.entries(d.models || {});
+  const nModels = models.reduce((n, [, v]) => n + v.length, 0);
+  return `<details class="cu-disk"><summary>${esc(t("cu.disk", { w: d.workflows.length, m: nModels }))}</summary>
+    <p class="note">${esc(t("cu.disk_sub"))}</p>
+    ${d.workflows.length ? `<h4>${esc(t("cu.workflows"))}</h4><ul class="cu-disk-list">${d.workflows.map((w) => `<li>${esc(w.replace(/\.json$/i, ""))}</li>`).join("")}</ul>` : ""}
+    ${models.map(([k, v]) => `<h4>${esc(k)} (${v.length})</h4><ul class="cu-disk-list">${v.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>`).join("")}
+  </details>`;
+}
+
+// Tras «Arrancar», se pregunta cada pocos segundos hasta que responda.
+function cuWatchStart(st) {
+  clearTimeout(CU.timer);
+  if (st.starting && !st.connected) CU.timer = setTimeout(() => { if ($("[data-cu-panel]")) cuLoad(); }, 4000);
+  else if (st.detecting) CU.timer = setTimeout(() => { if ($("[data-cu-panel]")) cuLoad(); }, 2000);
+}
+
+// Explorador de carpetas (del servidor: el navegador no da rutas completas).
+async function cuBrowse(start) {
+  let dlg = $("#cu-browse");
+  if (!dlg) {
+    dlg = document.createElement("dialog");
+    dlg.id = "cu-browse";
+    dlg.className = "cu-browse-dlg";
+    document.body.append(dlg);
+  }
+  const show = async (path) => {
+    let r;
+    try {
+      r = await api("POST", "/api/plugin/comfyui/browse", { path });
+    } catch (ex) {
+      if (path) return show(""); // la ruta escrita no existe: desde las unidades
+      toast(ex.message, "error");
+      return dlg.close();
+    }
+    dlg.innerHTML = `<header class="fp-head"><div class="fp-title"><span class="fp-ico">${svgIcon("folder", 18)}</span>
+        <div><strong>${esc(t("cu.browse_title"))}</strong><small>${esc(r.path || t("cu.browse_drives"))}</small></div></div>
+        <button type="button" class="icon-btn" data-cb="close" aria-label="${esc(t("chat.close"))}">${svgIcon("x", 18)}</button></header>
+      <div class="cu-browse-list">
+        ${r.parent != null && r.path ? `<button type="button" class="cu-browse-item" data-cb-go="${esc(r.parent)}">${svgIcon("arrowLeft", 15)} ${esc(t("cu.browse_up"))}</button>` : ""}
+        ${r.dirs.map((d) => `<button type="button" class="cu-browse-item ${d.comfy ? "comfy" : ""}" data-cb-go="${esc(d.path)}">${svgIcon("folder", 15)}
+          <span>${esc(d.name)}</span>${d.comfy ? `<span class="badge good">ComfyUI</span>` : ""}</button>`).join("")
+        || `<p class="note">${esc(t("cu.browse_empty"))}</p>`}
+      </div>
+      <div class="cu-browse-foot">${r.here ? `<span class="badge good">${esc(t("cu.browse_ok"))}</span>` : `<small class="note">${esc(t("cu.browse_hint"))}</small>`}
+        <button type="button" class="btn btn-sm btn-primary" data-cb="pick" ${r.path ? "" : "disabled"}>${esc(t("cu.browse_pick"))}</button></div>`;
+    dlg.onclick = (e) => {
+      if (e.target === dlg || e.target.closest("[data-cb=close]")) return dlg.close();
+      const go = e.target.closest("[data-cb-go]");
+      if (go) return show(go.dataset.cbGo);
+      if (e.target.closest("[data-cb=pick]") && r.path) {
+        dlg.close();
+        CU.path = r.path;
+        cuPost("install", { path: r.path }).then(() => { CU.path = null; cuRender(); });
+      }
+    };
+  };
+  if (!dlg.open) dlg.showModal();
+  dlg.innerHTML = `<p class="note">${esc(t("loading"))}</p>`;
+  show(start || "");
 }
 
 // Qué entrada del flujo es el prompt, la semilla, el tamaño…
@@ -2112,6 +2218,17 @@ function cuMount() {
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.cu === "refresh") return cuLoad(true);
+    if (b.dataset.cu === "locate") return cuPost("locate", {}, t("cu.detected"));
+    if (b.dataset.cu === "start") return cuPost("start", {}, t("cu.start_sent"));
+    if (b.dataset.cu === "browse") return cuBrowse($("[data-cu-path]", box)?.value.trim() || CU.st?.install?.path || "");
+    if (b.dataset.cu === "path-save") {
+      const path = $("[data-cu-path]", box)?.value.trim() || "";
+      if (!path) return toast(t("cu.path_empty"), "warn");
+      CU.path = path;
+      return cuPost("install", { path }).then(() => { CU.path = null; cuRender(); });
+    }
+    if (b.dataset.cu === "path-auto") return cuPost("install", { path: "" });
+    if (b.dataset.cuUse) return cuPost("install", { path: b.dataset.cuUse });
     if (b.dataset.cu === "save-tasks") {
       const tasks = {};
       $$("[data-cu-task]", box).forEach((el) => { (tasks[el.dataset.cuTask] ||= {})[el.dataset.k] = el.value; });
@@ -2294,6 +2411,7 @@ const DASH = {
   loading: false,
   mediaFilter: { q: "", kind: "all", preset: "all", from: "", to: "", sort: "date_desc" },
   filesFilter: { q: "", kind: "all", preset: "all", from: "", to: "", sort: "date_desc" },
+  sel: { media: new Set(), files: new Set() }, // elegidos para borrar varios a la vez
 };
 
 FEATURE_CARDS.gallery.push({
@@ -2741,6 +2859,7 @@ function renderMediaView() {
       if (items[idx]) openMediaLightbox(items, idx);
       return;
     }
+    if (libSelClick(e, "media")) return;
     const useBtn = e.target.closest("[data-media-chat-idx]");
     if (useBtn) {
       const items = filterMediaItems();
@@ -2756,7 +2875,7 @@ function paintMediaGrid() {
   if (!grid) return;
   const total = (DASH.data?.media || []).length;
   const items = filterMediaItems();
-  if (countBar) countBar.textContent = t("lib.showing", { shown: items.length, total });
+  if (countBar) paintLibSelBar("media", items, total);
 
   if (!items.length) {
     grid.innerHTML = `<div class="card lib-empty"><p>${esc(t(total ? "lib.empty_match" : "dash.no_media_yet"))}</p></div>`;
@@ -2767,7 +2886,8 @@ function paintMediaGrid() {
     const isVid = m.media_type === "video" || m.kind === "video";
     const kindLabel = t(`lib.kind_${isVid ? "video" : m.kind === "edit" ? "edit" : "image"}`);
     const dims = Array.isArray(m.dimensions) && m.dimensions.length === 2 ? `${m.dimensions[0]}×${m.dimensions[1]}` : "";
-    return `<article class="media-card">
+    return `<article class="media-card ${DASH.sel.media.has(m.id) ? "selected" : ""}">
+      ${libCheck("media", m)}
       <button type="button" class="media-thumb-btn" data-media-idx="${idx}" aria-label="${esc(t("lib.preview"))} ${esc(m.name)}">
         ${isVid
           ? `<video src="${esc(m.url)}" preload="metadata" muted loop playsinline onmouseenter="this.play().catch(()=>{})" onmouseleave="this.pause()"></video>
@@ -2792,6 +2912,7 @@ function paintMediaGrid() {
           <button type="button" class="btn btn-sm btn-primary" data-media-idx="${idx}">${svgIcon("eye", 15)} ${esc(t("lib.preview"))}</button>
           <button type="button" class="btn btn-sm" data-media-chat-idx="${idx}">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
           <a class="btn btn-sm" href="${esc(m.url)}" download="${esc(m.name)}" title="${esc(t("lib.download"))}">${svgIcon("download", 15)}</a>
+          ${libDelBtn("media", idx)}
         </div>
       </div>
     </article>`;
@@ -2903,6 +3024,7 @@ function renderFilesView() {
       if (items[idx]) openFilePreviewModal(items, idx);
       return;
     }
+    if (libSelClick(e, "files")) return;
     const useBtn = e.target.closest("[data-file-chat-idx]");
     if (useBtn) {
       const items = filterFileItems();
@@ -2918,7 +3040,7 @@ function paintFilesList() {
   if (!listEl) return;
   const total = (DASH.data?.files || []).length;
   const items = filterFileItems();
-  if (countBar) countBar.textContent = t("lib.showing", { shown: items.length, total });
+  if (countBar) paintLibSelBar("files", items, total);
 
   if (!items.length) {
     listEl.innerHTML = `<div class="card lib-empty"><p>${esc(t(total ? "lib.empty_match" : "dash.no_files_yet"))}</p></div>`;
@@ -2930,7 +3052,8 @@ function paintFilesList() {
     const kindLabel = t(`lib.kind_${it.kind || "other"}`);
     const isImg = it.kind === "image";
     const isVid = it.kind === "video";
-    return `<article class="card file-lib-card">
+    return `<article class="card file-lib-card ${DASH.sel.files.has(it.id) ? "selected" : ""}">
+      ${libCheck("files", it)}
       <button type="button" class="file-lib-preview-thumb" data-file-idx="${idx}" title="${esc(t("lib.preview"))}">
         ${isImg
           ? `<img src="${esc(it.url)}" alt="${esc(it.name)}" loading="lazy">`
@@ -2957,9 +3080,114 @@ function paintFilesList() {
         <button type="button" class="btn btn-sm btn-primary" data-file-idx="${idx}">${svgIcon("eye", 15)} ${esc(t("lib.preview"))}</button>
         <button type="button" class="btn btn-sm" data-file-chat-idx="${idx}">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
         <a class="btn btn-sm" href="${esc(it.url)}" download="${esc(it.name)}">${svgIcon("download", 15)} ${esc(t("lib.download"))}</a>
+        ${libDelBtn("files", idx)}
       </div>
     </article>`;
   }).join("");
+}
+
+// ── Borrar de la biblioteca (uno o varios; ver dashboard.delete_files) ──
+// Cada tarjeta tiene su casilla y su botón de papelera; con algo elegido, la
+// barra de arriba ofrece elegir todo lo que se ve y borrar lo elegido. La
+// confirmación es el diálogo de la app (confirmDialog), no el del navegador.
+function libCheck(kind, it) {
+  if (isGuest()) return "";
+  return `<label class="lib-check" title="${esc(t("lib.select"))}"><input type="checkbox" data-lib-sel="${esc(it.id)}"
+    ${DASH.sel[kind].has(it.id) ? "checked" : ""} aria-label="${esc(t("lib.select_item", { name: it.name }))}"></label>`;
+}
+
+function libDelBtn(kind, idx) {
+  if (isGuest()) return "";
+  return `<button type="button" class="btn btn-sm lib-del" data-lib-del="${idx}" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 15)}</button>`;
+}
+
+function paintLibSelBar(kind, items, total) {
+  const bar = $(kind === "media" ? "#media-count-bar" : "#files-count-bar");
+  if (!bar) return;
+  // Lo elegido que ya no está (se borró, o es de otro perfil) se olvida.
+  const ids = new Set((DASH.data?.[kind] || []).map((x) => x.id));
+  [...DASH.sel[kind]].forEach((id) => { if (!ids.has(id)) DASH.sel[kind].delete(id); });
+  const n = DASH.sel[kind].size;
+  const showing = `<span>${esc(t("lib.showing", { shown: items.length, total }))}</span>`;
+  if (isGuest() || (!items.length && !n)) {
+    bar.innerHTML = showing;
+    return;
+  }
+  const allShown = items.length && items.every((x) => DASH.sel[kind].has(x.id));
+  bar.innerHTML = `${showing}<div class="lib-selbar">
+    ${n ? `<strong>${esc(t("lib.selected", { n }))}</strong>` : ""}
+    ${items.length ? `<button type="button" class="btn btn-sm" data-lib-act="sel-all">${svgIcon("check", 15)} ${esc(t(allShown ? "lib.unselect_all" : "lib.select_all"))}</button>` : ""}
+    ${n ? `<button type="button" class="btn btn-sm" data-lib-act="sel-clear">${esc(t("lib.select_clear"))}</button>
+      <button type="button" class="btn btn-sm btn-danger" data-lib-act="sel-delete">${svgIcon("trash", 15)} ${esc(t("lib.delete_n", { n }))}</button>` : ""}
+  </div>`;
+}
+
+// Clics de selección y borrado en #/media y #/files; true si era uno de ellos.
+function libSelClick(e, kind) {
+  const items = kind === "media" ? filterMediaItems() : filterFileItems();
+  const sel = DASH.sel[kind];
+  const repaint = () => (kind === "media" ? paintMediaGrid() : paintFilesList());
+  const box = e.target.closest("[data-lib-sel]");
+  if (box) {
+    if (box.checked) sel.add(box.dataset.libSel);
+    else sel.delete(box.dataset.libSel);
+    box.closest(".media-card, .file-lib-card")?.classList.toggle("selected", box.checked);
+    paintLibSelBar(kind, items, (DASH.data?.[kind] || []).length);
+    return true;
+  }
+  if (e.target.closest(".lib-check")) return true; // el clic en el borde de la casilla
+  const act = e.target.closest("[data-lib-act]")?.dataset.libAct;
+  if (act === "sel-all") {
+    const allShown = items.every((x) => sel.has(x.id));
+    items.forEach((x) => (allShown ? sel.delete(x.id) : sel.add(x.id)));
+    repaint();
+    return true;
+  }
+  if (act === "sel-clear") {
+    sel.clear();
+    repaint();
+    return true;
+  }
+  if (act === "sel-delete") {
+    deleteLibraryItems((DASH.data?.[kind] || []).filter((x) => sel.has(x.id)));
+    return true;
+  }
+  const del = e.target.closest("[data-lib-del]");
+  if (del) {
+    const it = items[Number(del.dataset.libDel)];
+    if (it) deleteLibraryItems([it]);
+    return true;
+  }
+  return false;
+}
+
+async function deleteLibraryItems(list) {
+  if (!list?.length || isGuest()) return false;
+  const one = list.length === 1;
+  const ok = await confirmDialog(
+    one ? t("lib.del_title_one") : t("lib.del_title_many", { n: list.length }),
+    one ? t("lib.del_text_one", { name: list[0].name }) : t("lib.del_text_many", { n: list.length }),
+    one ? t("lib.delete") : t("lib.delete_n", { n: list.length }),
+  );
+  if (!ok) return false;
+  let r;
+  try {
+    r = await api("POST", "/api/files/delete", { ids: list.map((x) => x.id) });
+  } catch (ex) {
+    toast(ex.message, "error");
+    return false;
+  }
+  // Sus referencias se quitaron de las conversaciones guardadas: también de la abierta.
+  window.purgeChatFiles?.([...r.deleted, ...r.kept]);
+  list.forEach((x) => { DASH.sel.media.delete(x.id); DASH.sel.files.delete(x.id); });
+  const done = r.deleted.length + r.kept.length;
+  if (!done) toast(t("lib.del_none"), "warn");
+  else toast(t("lib.del_done", { n: done }) + (r.kept.length ? ` ${t("lib.del_kept", { n: r.kept.length })}` : ""), "ok", r.kept.length ? 8000 : 4000);
+  await loadDashboardData();
+  if (S.view?.kind === "media") renderMediaView();
+  else if (S.view?.kind === "files") renderFilesView();
+  else if (S.view?.kind === "gallery") renderHomeDashboard();
+  return true;
 }
 
 // ── Visor Multimedia Interactivo con navegación (Imágenes y Videos) ────
@@ -2989,6 +3217,7 @@ function openMediaLightbox(items, startIndex = 0) {
       </div>
       <div class="iv-nav-btns">
         <button type="button" class="btn btn-sm btn-primary" data-iv-use-chat="1">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
+        ${isGuest() ? "" : `<button type="button" class="btn btn-sm lib-del" data-iv-del="1">${svgIcon("trash", 15)} ${esc(t("lib.delete"))}</button>`}
         ${items.length > 1 ? `
           <button type="button" class="btn btn-sm" data-iv-step="-1" ${idx === 0 ? "disabled" : ""}>${svgIcon("chevronLeft", 15)} ${esc(t("lib.prev_item"))}</button>
           <span class="iv-nav-pos">${idx + 1} / ${items.length}</span>
@@ -2996,7 +3225,14 @@ function openMediaLightbox(items, startIndex = 0) {
         ` : ""}
       </div>`;
     dlg.append(meta);
-    meta.onclick = (ev) => {
+    meta.onclick = async (ev) => {
+      if (ev.target.closest("[data-iv-del]")) {
+        // La confirmación es otro <dialog>: se cierra el visor antes para que no lo tape.
+        const curItem = items[idx];
+        dlg.close();
+        if (curItem) await deleteLibraryItems([curItem]);
+        return;
+      }
       if (ev.target.closest("[data-iv-use-chat]")) {
         const curItem = items[idx];
         dlg.close();
@@ -3049,6 +3285,7 @@ function openFilePreviewModal(items, startIndex = 0) {
             <button type="button" class="btn btn-sm" data-fp-step="1" ${idx === items.length - 1 ? "disabled" : ""}>${svgIcon("chevronRight", 15)}</button>
           ` : ""}
           <button type="button" class="btn btn-sm" data-fp-use-chat="1">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
+          ${isGuest() ? "" : `<button type="button" class="btn btn-sm lib-del" data-fp-del="1" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 15)}</button>`}
           ${(kind === "image" || kind === "video") ? `<button type="button" class="btn btn-sm" data-fp-zoom="1">${svgIcon("maximize", 15)} ${esc(t("iv.view"))}</button>` : ""}
           <a class="btn btn-sm btn-primary" href="${esc(it.url)}" download="${esc(it.name)}">${svgIcon("download", 15)} ${esc(t("lib.download"))}</a>
           <button type="button" class="icon-btn" data-fp-close="1" aria-label="${esc(t("chat.close"))}">${svgIcon("x", 18)}</button>
@@ -3058,8 +3295,14 @@ function openFilePreviewModal(items, startIndex = 0) {
         <p class="note">${esc(t("lib.loading_preview"))}</p>
       </div>`;
 
-    dlg.onclick = (e) => {
+    dlg.onclick = async (e) => {
       if (e.target === dlg || e.target.closest("[data-fp-close]")) return dlg.close();
+      if (e.target.closest("[data-fp-del]")) {
+        // La confirmación es otro <dialog>: se cierra este antes para que no lo tape.
+        dlg.close();
+        await deleteLibraryItems([it]);
+        return;
+      }
       if (e.target.closest("[data-fp-use-chat]")) {
         dlg.close();
         useLibraryItemInChat(it);

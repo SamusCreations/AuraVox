@@ -146,6 +146,12 @@ AuraVox provides a dual-engine TTS architecture:
 
 Implemented in `plugins/comfyui/` (`plugin.py`, `cu_workflows.py`, `cu_jobs.py`):
 
+- **Installation Auto-Detection (`cu_locate.py`)**:
+  - Finds **portable/standalone** installs (`ComfyUI_windows_portable`, `ComfyUI-Easy-Install`, cloned repos with a venv, StabilityMatrix packages…): any folder with `main.py` + `models\` (or `comfy\`), searched in the user's home/Desktop/Documents/Downloads, Program Files and two levels below every drive root. The port comes from the launcher `.bat` line that runs `main.py` (`--port`, default `8188`).
+  - Finds **ComfyUI Desktop**: the app in `%LOCALAPPDATA%\Programs\@comfyorgcomfyui-electron\` (or `…\Programs\ComfyUI\`) and its data folder from `basePath` in `%APPDATA%\ComfyUI\config.json`; port `8000` unless its settings say otherwise.
+  - If the **ComfyUI address** setting is empty, the detected installation's URL is used (the running one is preferred). Detection runs in the background on first use and can be repeated with **Detect again**.
+  - If nothing is found (or to pick another one), the admin chooses the folder by hand in **Settings → Plugins → ComfyUI models and workflows → ComfyUI installation**: type the path or use **Browse…** (an in-app folder browser served by the plugin, since browsers don't expose full paths), then **Validate and use**. The choice is stored in `config/comfyui/config.json` (`install.path`).
+  - With the folder known, saved workflows (`user/default/workflows`) and models (`models/*`) are listed even while ComfyUI is closed, saved workflows are read from disk when the API doesn't list them, and **Start ComfyUI** launches it in its own window (the portable launcher `.bat`, `python_embeded` + `main.py`, or the Desktop executable).
 - **Workflow Auto-Discovery & Graph Conversion**:
   - Reads workflows directly from your ComfyUI installation (`user/default/workflows/*.json`) as well as custom JSON files placed in `plugins/comfyui/workflows/`.
   - Automatically converts ComfyUI visual graph JSON files (with `nodes` and `links`, including subgraph expansions) into executable ComfyUI `/prompt` API format on the fly (`cu_workflows.py`).
@@ -209,6 +215,11 @@ Implemented in `app/webui/dashboard.py` and `app/webui/static/features.js`:
   - Aggregates all documents, spreadsheets, presentations, code files, and archives generated (`create_file`, `convert_file`) or uploaded across the profile.
   - Filterable by **filename**, **date range**, and **sort order**.
   - Built-in **Document Preview Modal** (`/api/files/<id>/preview`) rendering inline previews for PDFs (`<iframe>`), images, audio/video players, and extracted text/Markdown previews for `.docx`, `.xlsx`, `.pptx`, `.txt`, `.md`, `.csv`, `.json`, `.yaml`, and source code files.
+- **Deleting from the Libraries (single or bulk)**:
+  - Every card in `#/media` and `#/files` has a selection checkbox and a trash button; the preview modal and the lightbox also have a **Delete** button. With items selected, the toolbar shows **Select everything shown**, **Cancel** and **Delete (N)**.
+  - Confirmation uses the in-app dialog (`confirmDialog`), never the browser's `confirm()`. Guests cannot delete (`/api/files/delete` requires a saved profile).
+  - `POST /api/files/delete` → `dashboard.delete_files(owner, …)` only accepts ids that are part of the **current profile's** library. For each id it removes every reference in that profile's saved chats (`strip_files`: the attachment and its vision image, the converted-file message, the ComfyUI card or just that variation), ComfyUI jobs (`plugins.forget_files` → `cu_jobs.forget`, or `jobs.json` directly when the plugin is off; deleted source/reference images are also dropped from other jobs' parameters), and then deletes the file and its `.json` metadata from `config/chats/files/` through `file_store.forget` — unless another profile still uses it (reported as `kept`). The open chat in the browser is purged too (`window.purgeChatFiles` in `app.js`) so it doesn't re-save stale references.
+  - Library files are not linked to the RAG index (`config/knowledge/<assistant>/` stores extracted text separately and is managed from the assistant's **Documents** tab), so no index entries need to be removed.
 
 ### 4.2 Cross-Chat Content Referencing within a Profile
 
@@ -448,6 +459,8 @@ Controls Whisper STT model selection (`fast` = `small`, `accurate` = `large-v3-t
 | `GET /api/state` | Returns full application state: active profile, assistants, conversations, skills, and system status. |
 | `GET /api/dashboard` | Returns aggregated usage metrics, per-assistant activity, 7-day timeline, and recent generated media/files (`#/`, `#/media`, `#/files`). |
 | `GET /api/files/<id>/preview` | Returns inline preview metadata and extracted text/URLs for any generated or uploaded file in the profile. |
+| `POST /api/files/delete` | Deletes one or more library files (`{"ids": [...]}`) of the current profile: removes their references in the profile's chats and ComfyUI jobs, then the file on disk unless another profile uses it. Returns `deleted`, `kept`, `refs`. |
+| `POST /api/plugin/comfyui/{locate,browse,install,start}` | *(admin)* ComfyUI installation: re-detect, browse folders, choose/validate a folder (`path: ""` = back to automatic), start ComfyUI. |
 | `POST /api/assistants/<name>/chat/stream` | Streams an assistant chat turn over SSE (`token`, `tool`, `audio`, `done`, `error` events). |
 | `POST /api/group/stream` | Streams a multi-assistant group turn or opinion round over SSE. |
 | `POST /api/voice/turn` | Processes a recorded audio blob from Browser/Mobile Voice Mode and returns transcript + reply + TTS audio URLs. |

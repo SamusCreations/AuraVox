@@ -147,6 +147,36 @@ def cancel(jid: str, owner: str, admin=False) -> bool:
     return True
 
 
+def forget(file_ids, owner: str) -> int:
+    """Se borraron de la biblioteca: fuera los trabajos terminados de `owner`
+    cuyo resultado es uno de esos archivos (si no, jobs.json los mantendría
+    "en uso" y volverían a la biblioteca)."""
+    n = 0
+    with _cond:
+        _load()
+        for jid, j in list(JOBS.items()):
+            url = str((j.get("result") or {}).get("url") or "") if isinstance(j.get("result"), dict) else ""
+            if j["status"] in ACTIVE or (j.get("owner") and j["owner"] != owner):
+                continue
+            if url.rsplit("/", 1)[-1] in file_ids:
+                del JOBS[jid]
+                n += 1
+                continue
+            # La imagen de origen o de referencia de otro resultado: se olvida
+            # (si no, seguiría "en uso"); su "otra versión" ya no podrá hacerse.
+            params = j.get("params") or {}
+            if (params.get("src") or {}).get("id") in file_ids:
+                params.pop("src")
+                n += 1
+            refs = [r for r in params.get("refs") or [] if r.get("id") not in file_ids]
+            if len(refs) != len(params.get("refs") or []):
+                n += len(params["refs"]) - len(refs)
+                params["refs"] = refs
+        if n:
+            _save()
+    return n
+
+
 def public(j: dict) -> dict:
     out = {k: j.get(k) for k in ("id", "kind", "status", "label", "position", "error", "result", "created", "eta", "workflow",
                                  "wf_name", "size", "note")}

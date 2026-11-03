@@ -9,7 +9,8 @@
   "default_enabled": false,
   "min_role": "user",
   "settings": [
-    {"key": "url", "type": "text", "label": {"es": "Dirección de ComfyUI", "en": "ComfyUI address"}, "placeholder": "http://127.0.0.1:8188"},
+    {"key": "url", "type": "text", "label": {"es": "Dirección de ComfyUI", "en": "ComfyUI address"}, "placeholder": "http://127.0.0.1:8188",
+     "help": {"es": "Vacío: se usa la de la instalación detectada o elegida (abajo, en «Modelos y flujos de ComfyUI» → Instalación).", "en": "Empty: the address of the detected or chosen installation is used (below, in “ComfyUI models and workflows” → Installation)."}},
     {"key": "vram_mode", "type": "select", "label": {"es": "Memoria de la GPU (VRAM)", "en": "GPU memory (VRAM)"},
      "options": [
        {"value": "swap", "label": {"es": "Intercambio: descargar el asistente mientras dibuja (recomendado)", "en": "Swap: unload the assistant while drawing (recommended)"}},

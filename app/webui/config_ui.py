@@ -236,7 +236,7 @@ def required_role(method: str, path: str) -> str:
                                                  "/api/backups")):
         return "admin"
     if path.startswith(("/api/assistants", "/api/chats/", "/api/memory", "/api/knowledge/", "/api/routines")) or path in (
-            "/api/profile/me", "/api/models/measure"):
+            "/api/profile/me", "/api/models/measure", "/api/files/delete"):
         return "user"
     return "guest"
 
@@ -1228,6 +1228,16 @@ class Handler(BaseHTTPRequestHandler):
                 # archivos que subió se borran ya si nadie más los usa.
                 ids = [str(x) for x in (self._body(MAX_BODY).get("ids") or [])][:200]
                 return self._send_json({"removed": file_store.forget(ids)})
+            if method == "POST" and path == "/api/files/delete":
+                # Biblioteca del perfil (#/media, #/files): borrar uno o varios.
+                if self._sess.get("guest"):
+                    return self._send_json({"error": tr("role_forbidden")}, 403)
+                ids = [str(x) for x in (self._body(MAX_BODY).get("ids") or [])][:500]
+                result = dashboard.delete_files(self._owner(), False, self._state().get("assistants") or [], ids)
+                if result["deleted"] or result["kept"]:
+                    server_log.log("files", f"library: deleted {len(result['deleted'])} file(s), "
+                                            f"removed {result['refs']} reference(s), kept {len(result['kept'])} in use elsewhere")
+                return self._send_json(result)
             if method == "POST" and path == "/api/files":
                 data = self._raw_body(file_store.MAX_BYTES)
                 if not data:

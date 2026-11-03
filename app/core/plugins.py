@@ -344,6 +344,22 @@ def call(name: str, args: dict, ctx):
     return None
 
 
+def forget_files(ids, owner: str) -> int:
+    """Se borraron de la biblioteca los archivos `ids` del perfil `owner`:
+    cada plugin con forget_files(ids, owner) quita lo que guardó de ellos
+    (p. ej. ComfyUI, sus trabajos). Devuelve cuántas referencias quitaron."""
+    total = 0
+    for p in discover():
+        fn = getattr(p.module, "forget_files", None) if p.module else None
+        if not callable(fn):
+            continue
+        try:
+            total += int(fn(set(ids), owner) or 0)
+        except Exception:  # noqa: BLE001 — un plugin roto no frena el borrado
+            traceback.print_exc()
+    return total
+
+
 def http(pid: str, method: str, action: str, data: dict, ctx):
     """(estado, dict) de una ruta propia del plugin (/api/plugin/<id>/<acción>)."""
     p = next((x for x in _usable(ctx) if x.id == pid), None)
