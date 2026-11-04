@@ -9,6 +9,7 @@
 1. [System Architecture & Data Flow](#1-system-architecture--data-flow)
 2. [Core AI & Audio Stack](#2-core-ai--audio-stack)
    - [2.1 LLM Engine & Tool Orchestration (`Ollama`)](#21-llm-engine--tool-orchestration-ollama)
+   - [2.1b Remote LLM Providers via API & Hugging Face Downloads](#21b-remote-llm-providers-via-api-optional--hugging-face-downloads)
    - [2.2 Speech-to-Text (`faster-whisper` + `Silero VAD`)](#22-speech-to-text-faster-whisper--silero-vad)
    - [2.3 Text-to-Speech (`Supertonic-3 ONNX` & `Qwen3-TTS` Voice Cloning)](#23-text-to-speech-supertonic-3-onnx--qwen3-tts-voice-cloning)
    - [2.4 Local Image & Video Generation (`ComfyUI` + Dynamic VRAM Swapping)](#24-local-image--video-generation-comfyui--dynamic-vram-swapping)
@@ -110,6 +111,23 @@ Implemented in `app/core/assistant_common.py` and `app/core/assistant_engine.py`
   - If a violation is detected, AuraVox automatically triggers a corrective retry round before delivering the final text to the user.
 - **VRAM Contention Detection**: Before dispatching a turn, `_gpu_vram_mb()` queries `nvidia-smi`. If GPU VRAM utilization exceeds 92%, AuraVox logs a warning explaining when Windows spills shared GPU memory into system RAM.
 
+### 2.1b Remote LLM Providers via API (optional) & Hugging Face Downloads
+
+Ollama stays the default engine. Optionally, an assistant can run on a **remote model through an API** instead (`app/core/llm_remote.py`):
+
+- **Provider kinds**: `openai` — any OpenAI-compatible `/v1/chat/completions` server (OpenAI, OpenRouter, Groq, LM Studio, llama-server, vLLM, Ollama's own `/v1`…); `anthropic` — Anthropic Messages API; `gemini` — Google Gemini API.
+- **Setup**: *Settings → AI models → AI providers via API* (admin): name, API type (presets for OpenAI, OpenRouter, LM Studio, llama-server, Anthropic, Gemini), base URL, API key, model list (**Load the provider's model list** fills suggestions from `/models`), per-model `tools` / `vision` flags and a **Test** button (a short reply plus a tool-calling probe; if the model doesn't call the probe tool, `tools` is unchecked).
+- **Using it**: remote models appear in the assistant's model picker under *Via API (remote)* and are stored in `base_model` as `@<provider_id>/<model>` (e.g. `@openrouter/meta-llama/llama-3.3-70b-instruct`). `@` is not valid in Ollama names, so local and remote models never collide. If the chosen model lacks `tools` or `vision`, the picker warns that it won't use tools / see images.
+- **How it works**: every LLM call in AuraVox (tool loop, streaming, precheck, reviewer, language rewrite, structured JSON judgements, summaries) uses Ollama's `/api/chat` body and goes through `llm_remote.post()`, a drop-in for `requests.post`. Local models go to Ollama unchanged; remote ones are translated (base64 `images` → image parts, `tool_calls`/`tool` messages → each API's tool-use format with generated ids, `format` JSON schema → `response_format` / a forced `output` tool on Anthropic / `responseSchema` on Gemini, `options` → temperature/top_p/max tokens) and the reply comes back in Ollama's shape (`.json()` or NDJSON `.iter_lines()` for streaming), so tools, streaming and vision keep working. Requests with no messages (preload/unload with `keep_alive`) are no-ops for remote models.
+- **VRAM / ComfyUI**: a remote model uses no VRAM; the ComfyUI plugin doesn't move its models to RAM when a remote-model assistant chats (`plugin.context`), and the Ollama ↔ ComfyUI swap only unloads what is really loaded in Ollama.
+- **Secrets**: API keys (and the Hugging Face token) live in `config/secrets.json` (git-ignored), encrypted with Windows DPAPI for the current Windows user (`app/core/secrets_store.py`); they are never sent back to the browser (`has_key` only). Non-secret provider settings are in `config/llm_providers.json` (git-ignored). Full backups include `llm_providers.json`, and `secrets.json` only when secrets are included (DPAPI values only decrypt on the same PC/user).
+- **Privacy note**: with a remote provider the conversation (and attached images) is sent to that service; embeddings for document search (`nomic-embed-text`) stay on Ollama.
+
+**Hugging Face** (`app/core/hf_hub.py`, public API at `huggingface.co/api`):
+
+- *Settings → AI models → Download from Hugging Face*: search GGUF repos (or paste `user/repo` / its link), list every quantization with its size (multi-part GGUFs are grouped), and **Download**. Public repos are pulled by Ollama itself as `hf.co/<user>/<repo>:<QUANT>` with the usual progress bar (`/api/models/pull`). Private or gated repos need a saved token (read access; accept the license on the website): Ollama can't receive the token, so AuraVox downloads the single-file GGUF to `cache/hf/`, uploads it as an Ollama blob (`/api/blobs`) and creates `<repo>:<quant>` with `/api/create`, then deletes the temporary file.
+- *Settings → Plugins → ComfyUI → Download models from Hugging Face*: paste a repo, see its model files (`.safetensors`, `.gguf`, `.ckpt`, `.pt`, `.pth`, `.bin`, `.sft`) with sizes and a suggested `models\` subfolder (checkpoints, diffusion_models, unet, loras, vae, text_encoders, clip, clip_vision, controlnet, upscale_models, embeddings — editable), and download one file at a time with progress and cancel; it goes to `<ComfyUI>\models\<folder>\` via a `.part` file and the model lists refresh afterwards.
+
 ### 2.2 Speech-to-Text (`faster-whisper` + `Silero VAD`)
 
 Implemented in `app/voice/stt_whisper.py`:
@@ -209,7 +227,8 @@ Implemented in `app/webui/dashboard.py` and `app/webui/static/features.js`:
   - Quick-navigation cards to jump directly to **Generated Images & Videos (`#/media`)** and **Generated Files (`#/files`)**.
 - **Generated Images & Videos Library (`#/media`)**:
   - Aggregates all images (`.png`, `.jpg`, `.webp`, `.gif`) and videos (`.mp4`, `.webm`, `.mov`) generated via ComfyUI or uploaded across the active user profile's conversations.
-  - Filterable by **name/prompt**, **media type** (`all`, `image`, `video`), and **date range** (`from` / `to`), with sorting (`newest`, `oldest`, `name_asc`, `name_desc`, `size_desc`).
+  - Filterable by **name/prompt**, **media type** (`all`, `image`, `edit`, `video`), and **date** (presets or a *Date range…* with `from` / `to`), with sorting (`newest`, `oldest`, `name_asc`, `name_desc`, `size_desc`).
+  - Minimal layout: type filters, back/switch, selection and card actions are **icon buttons** (`icons.js`, each with `title` + `aria-label`); thumbnails use `object-fit: contain`, so the whole image is visible (no cropping) with its aspect ratio.
   - Built-in **Lightbox Preview Modal** with full-resolution view, video player, download link, **"Use in chat..."** button, and delete action.
 - **Generated Files Library (`#/files`)**:
   - Aggregates all documents, spreadsheets, presentations, code files, and archives generated (`create_file`, `convert_file`) or uploaded across the profile.
@@ -461,6 +480,11 @@ Controls Whisper STT model selection (`fast` = `small`, `accurate` = `large-v3-t
 | `GET /api/files/<id>/preview` | Returns inline preview metadata and extracted text/URLs for any generated or uploaded file in the profile. |
 | `POST /api/files/delete` | Deletes one or more library files (`{"ids": [...]}`) of the current profile: removes their references in the profile's chats and ComfyUI jobs, then the file on disk unless another profile uses it. Returns `deleted`, `kept`, `refs`. |
 | `POST /api/plugin/comfyui/{locate,browse,install,start}` | *(admin)* ComfyUI installation: re-detect, browse folders, choose/validate a folder (`path: ""` = back to automatic), start ComfyUI. |
+| `POST /api/plugin/comfyui/{hf_files,hf_download,hf_cancel}`, `GET …/hf_status` | *(admin)* ComfyUI models from Hugging Face: list a repo's model files (with suggested `models\` folder), download one into `models\<folder>\`, cancel, progress. |
+| `GET/PUT /api/llm/providers` | *(admin)* Remote LLM providers (no keys in the response, only `has_key`); PUT replaces the list (`api_key` only when it changes, `clear_key` to remove). |
+| `POST /api/llm/models`, `POST /api/llm/test` | *(admin)* List a provider's models; test a model (short reply + tool-calling probe). |
+| `GET /api/hf/search?q=`, `GET /api/hf/repo?repo=` | *(admin)* Search Hugging Face GGUF repos; list a repo's quantizations. |
+| `POST /api/hf/pull`, `GET/PUT /api/hf/token` | *(admin)* Download a GGUF quantization into Ollama (`hf.co/…` pull, or download + import for private/gated repos); save/remove the HF token. |
 | `POST /api/assistants/<name>/chat/stream` | Streams an assistant chat turn over SSE (`token`, `tool`, `audio`, `done`, `error` events). |
 | `POST /api/group/stream` | Streams a multi-assistant group turn or opinion round over SSE. |
 | `POST /api/voice/turn` | Processes a recorded audio blob from Browser/Mobile Voice Mode and returns transcript + reply + TTS audio URLs. |

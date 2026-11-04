@@ -22,6 +22,8 @@ config/network.json
 config/voice_listener.json
 config/model_memory.json
 config/model_updates.json
+config/llm_providers.json
+config/secrets.json
 
 # ── User data directories & chat-generated content ───────────────────
 config/chats/

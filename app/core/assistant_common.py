@@ -14,6 +14,8 @@ import threading
 import requests
 import yaml
 
+from app.core import llm_remote
+
 from app.paths import ASSISTANTS_YAML as _DEFAULT_CONFIG_PATH
 from app.voice.push_to_talk import normalize_key
 
@@ -387,7 +389,7 @@ def ensure_models_installed(assistants: dict) -> None:
         print("(warning: could not connect to Ollama to check installed models)")
         return
 
-    needed = sorted({cfg["base_model"] for cfg in assistants.values()})
+    needed = sorted({cfg["base_model"] for cfg in assistants.values() if not llm_remote.is_remote(cfg["base_model"])})
     missing = [m for m in needed if not model_is_installed(m, installed)]
     if not missing:
         return
@@ -740,7 +742,7 @@ def structured_request(ollama_url: str, model: str, messages: list, schema: dict
     if tools:
         body["tools"] = tools
     try:
-        r = requests.post(ollama_url, json=body, timeout=60)
+        r = llm_remote.post(ollama_url, json=body, timeout=60)
         r.raise_for_status()
         data = json.loads(r.json()["message"]["content"])
     except (requests.exceptions.RequestException, ValueError, KeyError, TypeError):
@@ -973,7 +975,7 @@ def _stream_chat(ollama_url: str, body: dict, on_piece, stop=None) -> dict:
     eval_count…) más "stopped" si se cortó."""
     content, tool_calls, last = [], [], {}
     stopped = False
-    with requests.post(ollama_url, json={**body, "stream": True}, stream=True, timeout=120) as r:
+    with llm_remote.post(ollama_url, json={**body, "stream": True}, stream=True, timeout=120) as r:
         r.raise_for_status()
         for line in r.iter_lines():
             if not line:
@@ -1404,7 +1406,7 @@ def ask_with_tools(
             # previa dice que faltaba una herramienta, se corta la ronda.
             data = _stream_chat(ollama_url, body, release.feed, stop=lambda: bool(pre_needed()))
         else:
-            r = requests.post(ollama_url, json={**body, "stream": False}, timeout=120)
+            r = llm_remote.post(ollama_url, json={**body, "stream": False}, timeout=120)
             r.raise_for_status()
             data = r.json()
         message = data["message"]
@@ -1415,6 +1417,7 @@ def ask_with_tools(
             "tokens": data.get("eval_count"),
             "prompt_seconds": round((data.get("prompt_eval_duration") or 0) / 1e9, 2),
             "stream": bool(release),
+            "remote": llm_remote.is_remote(model),
         })
 
         tool_calls = None if final_only else message.get("tool_calls")
@@ -1570,7 +1573,7 @@ def _rewrite_in_language(content, reply_lang, got, working, model, ollama_url, k
         "keep_alive": keep_alive,
     }
     try:
-        r = requests.post(ollama_url, json=body, timeout=120)
+        r = llm_remote.post(ollama_url, json=body, timeout=120)
         r.raise_for_status()
         rewritten = (r.json().get("message", {}).get("content") or "").strip()
     except (requests.exceptions.RequestException, ValueError):
@@ -1586,7 +1589,7 @@ def unload_ollama_model(model_name: str, ollama_url: str = "http://127.0.0.1:114
     keep_alive=0 y sin mensajes, Ollama lo descarga sin generar nada.
     """
     try:
-        requests.post(
+        llm_remote.post(
             ollama_url,
             json={"model": model_name, "messages": [], "keep_alive": 0},
             timeout=10,

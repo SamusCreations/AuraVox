@@ -203,6 +203,7 @@ const SAFE_PTT_KEYS = new Set(["PAUSE", "SCROLLLOCK", "MBUTTON", "XBUTTON1", "XB
 
 function modelInstalled(name) {
   if (!name) return false;
+  if (name.startsWith("@")) return (S.models.remote || []).some((m) => m.name === name);
   return S.models.models.some((m) => m.name === name || (!name.includes(":") && m.name === `${name}:latest`));
 }
 
@@ -1119,6 +1120,9 @@ function renderModelList() {
   if (hidden) {
     html += `<div class="model-card missing"><strong>${esc(d.base_model)}</strong>
       <span class="meta">${esc(t("model.custom", { parent: hidden.parent || "?" }))}</span></div>`;
+  } else if (d.base_model?.startsWith("@") && !modelInstalled(d.base_model)) {
+    html += `<div class="model-card missing"><strong>${esc(d.base_model)}</strong>
+      <span class="meta">${esc(t("prov.model_missing"))}</span></div>`;
   } else if (d.base_model && !modelInstalled(d.base_model)) {
     html += `<div class="model-card missing">
       <strong>${esc(d.base_model)}</strong><span class="meta">${esc(t("model.missing"))}</span>
@@ -1147,6 +1151,30 @@ function renderModelList() {
     </label>`;
   }).join("");
   if (!S.models.models.length) html += `<p class="empty">${esc(t("model.none"))}</p>`;
+  const remote = S.models.remote || [];
+  if (remote.length) {
+    html += `<div class="model-group">${svgIcon("server", 14)} ${esc(t("prov.group"))}</div>`;
+    html += remote.map((m) => {
+      const sel = m.name === d.base_model;
+      const caps = m.capabilities || [];
+      const badges = [`<span class="badge use">${esc(m.provider_name)}</span>`,
+        caps.includes("tools") ? `<span class="badge good" title="${esc(t("model.tools_t"))}">tools</span>`
+          : `<span class="badge bad" title="${esc(t("model.no_tools_t"))}">${esc(t("model.no_tools"))}</span>`];
+      if (caps.includes("vision")) badges.push(`<span class="badge">${esc(t("model.vision"))}</span>`);
+      usedBy(m.name).forEach((n) => badges.push(`<span class="badge use" title="${esc(t("model.also_used", { n }))}">${esc(n)}</span>`));
+      return `<label class="model-card remote ${sel ? "selected" : ""}">
+        <input type="radio" name="model" value="${esc(m.name)}" ${sel ? "checked" : ""}>
+        <strong>${esc(m.name.slice(m.provider.length + 2))}</strong><span class="meta">${esc(t("prov.api_meta"))}</span>
+        <div class="badges">${badges.join("")}</div>
+      </label>`;
+    }).join("");
+  }
+  const cur = remote.find((m) => m.name === d.base_model);
+  if (cur) {
+    const caps = cur.capabilities || [];
+    const warn = [!caps.includes("tools") && t("prov.warn_tools"), !caps.includes("vision") && t("prov.warn_vision")].filter(Boolean);
+    html = `<div class="callout info wide"><div>${esc(t("prov.selected_note"))}${warn.length ? `<br>${esc(warn.join(" "))}` : ""}</div></div>` + html;
+  }
   box.innerHTML = html;
   renderMemoryBox();
   renderUpdateBox();
@@ -1183,7 +1211,7 @@ function renderUpdateBox() {
   const box = $("#model-upd");
   if (!box) return;
   const name = S.draft.base_model;
-  if (!S.updates || !modelInstalled(name)) {
+  if (!S.updates || !modelInstalled(name) || name.startsWith("@")) {
     box.innerHTML = "";
     return;
   }
@@ -1817,6 +1845,7 @@ function renderShared() {
           ${secHead(catMap.models)}
           <section class="card" id="ollama-card"></section>
           <section class="card" id="models-card"></section>
+          ${admin ? '<section class="card" id="providers-card"></section>' : ""}
         </div>
 
         ${admin ? `
@@ -1880,6 +1909,7 @@ function renderShared() {
   renderOllamaCard();
   loadOllamaUpdate().then((st) => { if (OLLAMA_BUSY.includes(st?.state)) pollOllamaUpdate(); });
   renderModelsCard();
+  renderProvidersCard();
   loadUpdates();
   mountFeatureCards("settings");
   if (admin) {
@@ -1936,8 +1966,13 @@ function renderModelsCard() {
       </div>
       <small class="note">${t("pull.help")}</small>
       <div id="pull-status"></div>
+    </details>
+    <details class="subtle admin-act" id="hf-details" ${HFS.open ? "open" : ""}>
+      <summary>${esc(t("hf.title"))}</summary>
+      <div id="hf-box"></div>
     </details>`;
   renderPullStatus();
+  mountHfBox(box);
   box.onclick = onModelsCardClick;
 }
 
@@ -3513,7 +3548,7 @@ const extOf = (name) => (String(name).toLowerCase().match(/\.([a-z0-9]+)$/) || [
 
 // Capacidades del modelo del asistente (null = Ollama no las informa).
 function modelCaps(name = S.draft.base_model) {
-  const m = (S.models?.models || []).find((x) => x.name === name || (!String(name).includes(":") && x.name === `${name}:latest`));
+  const m = [...(S.models?.models || []), ...(S.models?.remote || [])].find((x) => x.name === name || (!String(name).includes(":") && x.name === `${name}:latest`));
   return m ? m.capabilities : null;
 }
 const canSeeImages = () => { const caps = modelCaps(); return caps == null || caps.includes("vision"); };

@@ -41,8 +41,8 @@ MAX_UPLOAD = 4 * 1024 ** 3
 # Rutas relativas a config/ (archivos o carpetas).
 ALWAYS = ["assistants.yaml", "wake_words.txt", "languages.txt", "voice_settings.yaml", "custom_voices",
           "profiles.json", "chats", "memory", "reminders.json", "lists", "knowledge", "routines", "plugins.json",
-          "mcp.json", "voice_listener.json", "model_updates.json"]
-SECRETS = ["network.json", "spotify_config.yaml"]
+          "mcp.json", "voice_listener.json", "model_updates.json", "llm_providers.json"]
+SECRETS = ["network.json", "spotify_config.yaml", "secrets.json"]
 NEVER = {"certs", "model_memory.json", "assistants.yaml.bak"}
 ATTACHMENTS = os.path.join("chats", "files")
 

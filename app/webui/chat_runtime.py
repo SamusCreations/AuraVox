@@ -313,8 +313,10 @@ def _log_event(label: str):
         if kind == "round":
             load = f", {d['load_seconds']:.1f}s loading model" if d["load_seconds"] >= 0.5 else ""
             prompt = f", {d['prompt_seconds']:.1f}s prompt eval" if d.get("prompt_seconds", 0) >= 0.3 else ""
-            log("chat", f"{label}: Ollama round {d['n']} in {d['seconds']:.1f}s{load}{prompt} ({d['tokens'] or 0} tokens)")
-            _warn_if_gpu_full(label, d["seconds"] - d["load_seconds"], d["tokens"])
+            who = "API" if d.get("remote") else "Ollama"
+            log("chat", f"{label}: {who} round {d['n']} in {d['seconds']:.1f}s{load}{prompt} ({d['tokens'] or 0} tokens)")
+            if not d.get("remote"):
+                _warn_if_gpu_full(label, d["seconds"] - d["load_seconds"], d["tokens"])
         elif kind == "retry":
             extra = f": «{_short(d['text'])}»" if d["text"] else ""
             log("chat", f"{label}: retry — {d['reason']}{extra}", "warn")
@@ -625,6 +627,7 @@ def summarize(cfg: dict, previous: str, messages: list):
     resumen anterior, o None si falló."""
     import requests
 
+    from app.core import llm_remote
     from app.core.assistant_engine import OLLAMA_URL
 
     label = (cfg.get("label") or cfg.get("name") or "?").upper()
@@ -632,7 +635,7 @@ def summarize(cfg: dict, previous: str, messages: list):
     prompt = (f"PREVIOUS SUMMARY:\n{previous}\n\n" if previous else "") + f"MESSAGES TO ADD TO THE SUMMARY:\n{transcript}"
     t0 = time.time()
     try:
-        r = requests.post(OLLAMA_URL, json={
+        r = llm_remote.post(OLLAMA_URL, json={
             "model": cfg["base_model"], "think": False, "stream": False, "keep_alive": CHAT_KEEP_ALIVE,
             "options": {"temperature": 0.2, "num_predict": 700},
             "messages": [{"role": "system", "content": _SUMMARY_SYSTEM.format(name=label)},

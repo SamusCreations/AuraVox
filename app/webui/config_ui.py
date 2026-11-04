@@ -59,6 +59,7 @@ server_log.install()
 from app import paths
 from app.core import assistant_common
 from app.core import config_store as store
+from app.core import llm_remote, hf_hub, secrets_store
 from app.voice import wake_word_utils as ww
 from app.webui import chat_runtime, chat_store, dev_reload, file_store, i18n, model_updates, network, ollama_update
 from app.webui import profiles
@@ -222,7 +223,8 @@ def required_role(method: str, path: str) -> str:
     if path in ("/api/session", "/api/session/guest", "/api/profiles/setup"):
         return "public"
     if method == "GET":
-        if path in ("/api/logs", "/api/network", "/api/plugins", "/api/mcp", "/api/diagnostics") or path.startswith("/api/backups"):
+        if path in ("/api/logs", "/api/network", "/api/plugins", "/api/mcp", "/api/diagnostics") or path.startswith(
+                ("/api/backups", "/api/llm/", "/api/hf/")):
             return "admin"  # la consola muestra las conversaciones de todos; el estado de la red, la clave
         if re.fullmatch(r"/api/chats/[a-z0-9_]{1,40}", path) or path == "/api/memory":
             return "user"
@@ -233,7 +235,7 @@ def required_role(method: str, path: str) -> str:
         "/api/shared", "/api/profiles",
     )
     if path in admin_writes or path.startswith(("/api/voices/", "/api/profiles/", "/api/plugins", "/api/mcp", "/api/diagnostics",
-                                                 "/api/backups")):
+                                                 "/api/backups", "/api/llm/", "/api/hf/")):
         return "admin"
     if path.startswith(("/api/assistants", "/api/chats/", "/api/memory", "/api/knowledge/", "/api/routines")) or path in (
             "/api/profile/me", "/api/models/measure", "/api/files/delete"):
@@ -287,7 +289,7 @@ def list_models() -> dict:
         r.raise_for_status()
         raw_models = r.json().get("models", [])
     except (requests.exceptions.RequestException, ValueError) as e:
-        return {"online": False, "error": str(e), "models": [], "hidden": []}
+        return {"online": False, "error": str(e), "models": [], "hidden": [], "remote": llm_remote.remote_models()}
 
     installed = {m.get("name") or m.get("model") for m in raw_models}
     models, hidden = [], []
@@ -311,7 +313,7 @@ def list_models() -> dict:
         })
     models.sort(key=lambda x: x["name"].lower())
     hidden.sort(key=lambda x: x["name"].lower())
-    return {"online": True, "models": models, "hidden": hidden}
+    return {"online": True, "models": models, "hidden": hidden, "remote": llm_remote.remote_models()}
 
 
 # ── Memoria de cada modelo ────────────────────────────────────────────
@@ -567,6 +569,130 @@ def start_pull(model: str) -> dict:
     return pull_status()
 
 
+def _hf_import_worker(repo: str, path: str, name: str, size: int) -> None:
+    """Private/gated Hugging Face GGUF: Ollama can't receive the token, so the
+    file is downloaded here (with the token), sent to Ollama as a blob and
+    turned into a model with /api/create. Progress goes to the same _pull
+    state as `ollama pull`."""
+    dest = os.path.join(paths.ROOT, "cache", "hf", repo.replace("/", "__"), os.path.basename(path))
+    try:
+        def progress(done, total):
+            with _pull_lock:
+                _pull.update(status="downloading from Hugging Face", completed=done, total=total or size)
+        server_log.log("models", f"downloading {repo}/{path} from Hugging Face (private/gated)")
+        digest = hf_hub.download(repo, path, dest, progress=progress)
+        with _pull_lock:
+            _pull.update(status="importing into Ollama")
+        blob = f"sha256:{digest}"
+        if requests.head(f"{OLLAMA_URL}/api/blobs/{blob}", timeout=10).status_code != 200:
+            with open(dest, "rb") as fh:
+                requests.post(f"{OLLAMA_URL}/api/blobs/{blob}", data=fh, timeout=(10, 3600)).raise_for_status()
+        with requests.post(f"{OLLAMA_URL}/api/create", json={"model": name, "files": {os.path.basename(path): blob},
+                                                             "stream": True}, stream=True, timeout=(10, 1800)) as r:
+            if r.status_code != 200:
+                raise RuntimeError(r.text.strip() or f"HTTP {r.status_code}")
+            for line in r.iter_lines():
+                if line:
+                    msg = json.loads(line)
+                    if msg.get("error"):
+                        raise RuntimeError(msg["error"])
+                    with _pull_lock:
+                        _pull["status"] = msg.get("status", "")
+        with _pull_lock:
+            _pull.update(state="done", status="success")
+        server_log.log("ollama", f"{name} imported from Hugging Face ({repo}/{path})")
+        _show_cache.clear()
+    except Exception as e:  # noqa: BLE001 — shown as is in the UI
+        with _pull_lock:
+            _pull.update(state="error", error=tr("hf_auth") if isinstance(e, PermissionError) else str(e))
+        server_log.log("ollama", f"could not import {repo}/{path}: {e}", "error")
+    finally:
+        for p in (dest, dest + ".part"):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        try:
+            os.rmdir(os.path.dirname(dest))
+        except OSError:
+            pass
+
+
+def start_hf_pull(repo: str, quant: str) -> dict:
+    """Assistant model from a Hugging Face GGUF repo. Public repos: Ollama
+    pulls `hf.co/<repo>:<quant>` itself. Private or gated ones (with a
+    token saved): downloaded here and imported (single-file quants)."""
+    try:
+        info = hf_hub.gguf_info(repo)
+    except PermissionError:
+        raise store.ConfigError(tr("hf_auth"), status=403)
+    except FileNotFoundError:
+        raise store.ConfigError(tr("hf_not_found"), status=404)
+    except (ValueError, requests.exceptions.RequestException) as e:
+        raise store.ConfigError(tr("hf_failed", error=e), status=502)
+    q = next((x for x in info["quants"] if x["quant"].upper() == str(quant or "").upper()), None)
+    if not q:
+        raise store.ConfigError(tr("hf_quant_missing"))
+    repo = info["id"]
+    if not (info["private"] or info["gated"]):
+        return start_pull(f"hf.co/{repo}:{q['quant']}")
+    if not hf_hub.token():
+        raise store.ConfigError(tr("hf_needs_token"), status=403)
+    if q["sharded"]:
+        raise store.ConfigError(tr("hf_sharded_private"))
+    name = re.sub(r"[^a-z0-9._-]", "-", repo.split("/")[1].lower())[:80] + ":" + q["quant"].lower()
+    with _pull_lock:
+        if _pull["state"] == "running":
+            raise store.ConfigError(tr("pull_running", model=_pull["model"]), status=409)
+        _pull.update(model=name, state="running", status="", completed=0, total=q["size"], error=None)
+    threading.Thread(target=_hf_import_worker, args=(repo, q["files"][0], name, q["size"]), daemon=True).start()
+    return pull_status()
+
+
+def models_api(method: str, path: str, data: dict, query: dict):
+    """/api/llm/* (remote LLM providers) and /api/hf/* (Hugging Face). None
+    if the path is not one of them."""
+    def q(k, d=""):
+        return (query.get(k) or [d])[0]
+    try:
+        if path == "/api/llm/providers":
+            if method == "GET":
+                return {"providers": llm_remote.public(), "kinds": list(llm_remote.KINDS),
+                        "defaults": llm_remote.DEFAULT_URLS}
+            if method == "PUT":
+                out = llm_remote.save(data.get("providers") or [])
+                server_log.log("models", f"remote LLM providers saved: {', '.join(p['id'] for p in out) or 'none'}")
+                return {"providers": out, "models": list_models()}
+        if method == "POST" and path == "/api/llm/models":
+            return {"models": llm_remote.list_provider_models(data)}
+        if method == "POST" and path == "/api/llm/test":
+            res = llm_remote.test_provider(data)
+            server_log.log("models", f"tested remote LLM {data.get('kind')} {data.get('model')}: ok in {res['ms']} ms"
+                                     f", tools {res['tools']}")
+            return res
+        if path == "/api/hf/token":
+            if method == "PUT":
+                hf_hub.set_token(data.get("token") or "")
+                server_log.log("models", "Hugging Face token " + ("saved" if data.get("token") else "removed"))
+            return {"has_token": bool(hf_hub.token())}
+        if method == "GET" and path == "/api/hf/search":
+            return {"models": hf_hub.search(q("q"), gguf=q("gguf", "1") != "0")}
+        if method == "GET" and path == "/api/hf/repo":
+            return hf_hub.gguf_info(q("repo"))
+        if method == "POST" and path == "/api/hf/pull":
+            return start_hf_pull(str(data.get("repo") or ""), str(data.get("quant") or ""))
+    except store.ConfigError:
+        raise
+    except PermissionError:
+        raise store.ConfigError(tr("hf_auth"), status=403)
+    except FileNotFoundError:
+        raise store.ConfigError(tr("hf_not_found"), status=404)
+    except (ValueError, requests.exceptions.RequestException) as e:
+        key = "hf_failed" if path.startswith("/api/hf/") else "llm_failed"
+        raise store.ConfigError(tr(key, error=e), status=400 if isinstance(e, ValueError) else 502)
+    return None
+
+
 def delete_model(name: str) -> dict:
     """Borra un modelo de Ollama (Ajustes compartidos → Modelos de IA). La
     página avisa antes si lo usa algún asistente; esos asistentes quedan
@@ -768,6 +894,8 @@ def _conversation_files(raw: list, sess=None, assistants: list | None = None) ->
 
 
 def _model_sees_images(model: str) -> bool:
+    if llm_remote.is_remote(model):
+        return "vision" in (llm_remote.model_caps(model) or [])
     caps = _show(model, "")["capabilities"]
     return caps is None or "vision" in caps  # None: esta versión de Ollama no lo informa
 
@@ -1091,6 +1219,10 @@ class Handler(BaseHTTPRequestHandler):
                 me = self._state()["me"] if self._sess else None
                 return self._send_json({"setup": profiles.setup_needed(), "profiles": profiles.list_public(), "me": me,
                                         "api_version": API_VERSION})
+            if path.startswith(("/api/llm/", "/api/hf/")):
+                out = models_api("GET", path, {}, parse_qs(urlsplit(self.path).query))
+                if out is not None:
+                    return self._send_json(out)
             if path == "/api/models":
                 return self._send_json(list_models())
             if path == "/api/models/memory":
@@ -1327,6 +1459,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(store.wake_check(
                     data.get("name", ""), data.get("aliases"), data.get("original"), data.get("exclusions"),
                 ))
+            if path.startswith(("/api/llm/", "/api/hf/")):
+                out = models_api(method, path, data, {})
+                if out is not None:
+                    return self._send_json(out)
             if method == "POST" and path == "/api/models/measure":
                 return self._send_json(measure_model(str(data.get("model") or "")))
             if method == "POST" and path == "/api/models/update":

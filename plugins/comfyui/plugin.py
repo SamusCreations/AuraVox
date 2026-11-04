@@ -38,7 +38,7 @@ import cu_locate as L  # noqa: E402
 import cu_workflows as W  # noqa: E402
 
 from app import paths  # noqa: E402
-from app.core import plugins  # noqa: E402
+from app.core import hf_hub, plugins  # noqa: E402
 
 PID = "comfyui"
 DATA_DIR = os.path.join(paths.CONFIG_DIR, "comfyui")
@@ -343,7 +343,11 @@ def tools(ctx):
 def context(ctx):
     if not connected():
         return ""
-    J.on_chat()
+    # A remote LLM (API provider, base_model "@…") needs no VRAM: ComfyUI
+    # keeps its models warm for the next job.
+    model = str(((getattr(ctx, "cfg", None) or {}).get("base_model")) or "")
+    if not model.startswith("@"):
+        J.on_chat()
     jobs = J.active(getattr(ctx, "owner", None) or "*") if ctx is not None else []
     busy = (f" Right now {len(jobs)} of the user's requests are being created ({', '.join(j['kind'] for j in jobs)}): "
             "they appear in the chat by themselves when ready." if jobs else "")
@@ -714,6 +718,83 @@ def _install_action(action, data):
     return 404, {"error": "not_found"}
 
 
+# ── Models from Hugging Face (Settings → Plugins → ComfyUI → Models) ───
+# Downloads one file of a repo into <ComfyUI>\models\<folder>\ (the folder
+# is picked in the UI, suggested from the file name). One download at a time.
+HF_FOLDERS = ("checkpoints", "diffusion_models", "unet", "loras", "vae", "text_encoders", "clip", "clip_vision",
+              "controlnet", "upscale_models", "embeddings")
+_hf_job = hf_hub.Job()
+
+
+def _hf_guess(path: str) -> str:
+    """Suggested models/ subfolder for a file, from its path/name."""
+    p = path.lower()
+    for key, folder in (("lora", "loras"), ("vae", "vae"), ("controlnet", "controlnet"), ("upscal", "upscale_models"),
+                        ("esrgan", "upscale_models"), ("clip_vision", "clip_vision"), ("text_encoder", "text_encoders"),
+                        ("t5", "text_encoders"), ("umt5", "text_encoders"), ("clip", "text_encoders"),
+                        ("qwen", "text_encoders"), ("embedding", "embeddings"), ("unet", "diffusion_models"),
+                        ("transformer", "diffusion_models"), ("diffusion", "diffusion_models")):
+        if key in p:
+            return folder
+    return "diffusion_models" if p.endswith(".gguf") else "checkpoints"
+
+
+def _hf_action(action, data):
+    from app.webui.i18n import tr
+
+    if action == "hf_status":
+        return _hf_job.status()
+    if action == "hf_cancel":
+        _hf_job.cancel()
+        return _hf_job.status()
+    inst = install()
+    models_dir = os.path.join(inst["data"], "models") if inst and inst.get("data") and not inst.get("missing") else ""
+    if action == "hf_files":
+        try:
+            info = hf_hub.repo_files(str(data.get("repo") or ""))
+        except PermissionError:
+            return 403, {"error": tr("hf_auth")}
+        except FileNotFoundError:
+            return 404, {"error": tr("hf_not_found")}
+        except Exception as e:  # noqa: BLE001
+            return 502, {"error": tr("hf_failed", error=e)}
+        files = [{**f, "folder": _hf_guess(f["path"])} for f in info["files"] if f["path"].lower().endswith(L.MODEL_EXT)]
+        return {**{k: v for k, v in info.items() if k != "files"}, "files": files, "folders": list(HF_FOLDERS),
+                "models_dir": models_dir}
+    if action == "hf_download":
+        repo, path, folder = str(data.get("repo") or ""), str(data.get("path") or ""), str(data.get("folder") or "")
+        if folder not in HF_FOLDERS or not models_dir:
+            return 400, {"error": tr("hf_dest_invalid")}
+        if not path.lower().endswith(L.MODEL_EXT) or ".." in path.replace("\\", "/").split("/"):
+            return 400, {"error": tr("hf_dest_invalid")}
+        name = os.path.basename(path)
+        dest = os.path.join(models_dir, folder, name)
+        if os.path.exists(dest):
+            return 409, {"error": tr("hf_exists", name=f"{folder}/{name}")}
+
+        def run(job):
+            def progress(done, total):
+                job.update(completed=done, total=total)
+            _log(f"downloading {repo}/{path} from Hugging Face into models/{folder}")
+            try:
+                hf_hub.download(repo, path, dest, progress=progress, cancel=job.cancelled)
+            except PermissionError:
+                raise RuntimeError(tr("hf_auth"))
+            except BaseException:
+                try:
+                    os.remove(dest + ".part")
+                except OSError:
+                    pass
+                raise
+            _reg["at"] = 0  # the model lists are read again
+            _log(f"downloaded {folder}/{name}")
+        try:
+            return _hf_job.start(run, label=f"{folder}/{name}", repo=repo, path=path, folder=folder)
+        except RuntimeError as e:
+            return 409, {"error": tr("pull_running", model=str(e))}
+    return 404, {"error": "not_found"}
+
+
 def http(method, action, data, ctx):
     owner = getattr(ctx, "owner", None) or "*"
     admin = getattr(ctx, "role", "") == "admin"
@@ -746,6 +827,8 @@ def http(method, action, data, ctx):
         return _admin_state(force=bool(data.get("refresh")))
     if method == "POST" and action in ("locate", "browse", "install", "start"):
         return _install_action(action, data)
+    if action in ("hf_files", "hf_download", "hf_status", "hf_cancel"):
+        return _hf_action(action, data)
     if action == "tasks" and method == "POST":
         conf_ = conf()
         for t in TASKS:

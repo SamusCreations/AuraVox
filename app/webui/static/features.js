@@ -2038,7 +2038,8 @@ function cuRender() {
   cuWatchStart(st);
   if (!st.connected || !st.workflows) {
     box.innerHTML = `<div class="cu-head">${head}${refresh}</div>${vr}${st.error ? `<small class="err">${esc(st.error)}</small>` : ""}
-      ${cuInstall(st)}${cuDisk(st)}`;
+      ${cuInstall(st)}${cuHf(st)}${cuDisk(st)}`;
+    cuHfBind();
     return;
   }
   const wfs = st.workflows;
@@ -2079,7 +2080,7 @@ function cuRender() {
       ${CU.open[w.id] ? cuMapping(w) : ""}</div>`;
   }).join("");
   box.innerHTML = `<div class="cu-head">${head}${refresh}</div>${vr}
-    ${cuInstall(st)}
+    ${cuInstall(st)}${cuHf(st)}
     <h4>${esc(t("cu.tasks"))}</h4><p class="note">${esc(t("cu.tasks_sub"))}</p>
     <div class="cu-tasks">${taskRows}</div>
     <div class="mcp-acts"><button class="btn btn-sm btn-primary" type="button" data-cu="save-tasks">${esc(t("pl.save"))}</button></div>
@@ -2087,7 +2088,128 @@ function cuRender() {
     <div class="cu-wfs">${wfRows}</div>
     <div class="mcp-acts"><label class="btn btn-sm">${esc(t("cu.import"))}<input type="file" accept=".json,application/json" data-cu-import hidden></label>
       <small class="note">${esc(t("cu.import_sub", { folder: st.folder }))}</small></div>`;
+  cuHfBind();
 }
+
+// Modelos de ComfyUI desde Hugging Face: un archivo de un repo a la
+// subcarpeta de models\ que corresponda (se sugiere por el nombre).
+const CUHF = { repo: "", info: null, loading: false, error: "", job: null, timer: null, filter: "" };
+
+function cuHf(st) {
+  const inst = st.install || {};
+  if (!inst.path || inst.missing) return "";
+  const i = CUHF.info;
+  const job = CUHF.job;
+  const running = job?.state === "running";
+  const pct = job?.total ? Math.floor((job.completed / job.total) * 100) : 0;
+  const jobHtml = !job || job.state === "idle" ? "" : running
+    ? `<div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div style="width:${pct}%"></div></div>
+       <div class="pull-state">${esc(t("cuhf.running", { name: job.label, pct, done: fmtSize(job.completed), total: fmtSize(job.total) }))}
+       <button class="icon-btn small danger" type="button" data-cuhf="cancel" title="${esc(t("cuhf.cancel"))}" aria-label="${esc(t("cuhf.cancel"))}">${svgIcon("x", 14)}</button></div>`
+    : `<div class="pull-state ${job.state === "done" ? "" : "error"}">${esc(t(`cuhf.${job.state}`, { name: job.label || "", error: job.error || "" }))}</div>`;
+  const f = CUHF.filter.toLowerCase();
+  const files = i ? i.files.filter((x) => !f || x.path.toLowerCase().includes(f)) : [];
+  return `<details class="cu-hf" ${CUHF.open ? "open" : ""} data-cuhf-wrap><summary>${svgIcon("download", 15)} ${esc(t("cuhf.title"))}</summary>
+    <p class="note">${esc(t("cuhf.sub"))}</p>
+    <form class="ic-row" data-cuhf-form>
+      <input class="text-input" data-cuhf-repo value="${esc(CUHF.repo)}" placeholder="${esc(t("cuhf.ph"))}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="${esc(t("cuhf.ph"))}">
+      <button class="btn" type="submit" title="${esc(t("hf.search"))}" aria-label="${esc(t("hf.search"))}" ${CUHF.loading ? "disabled" : ""}>${svgIcon("search", 16)}</button>
+    </form>
+    ${CUHF.error ? `<small class="err">${esc(CUHF.error)}</small>` : ""}
+    ${CUHF.loading ? `<p class="note">${esc(t("hf.loading"))}</p>` : ""}
+    ${i ? `<div class="hf-quants-head"><strong>${esc(i.id)}</strong>${i.private || i.gated ? `<span class="badge bad">${esc(t(i.private ? "hf.private" : "hf.gated"))}</span>` : ""}
+        <a class="icon-btn small" href="https://huggingface.co/${esc(i.id)}" target="_blank" rel="noopener" title="${esc(t("hf.open"))}" aria-label="${esc(t("hf.open"))}">${svgIcon("globe", 14)}</a></div>
+      ${i.files.length > 8 ? `<input class="text-input" data-cuhf-filter value="${esc(CUHF.filter)}" placeholder="${esc(t("cuhf.filter"))}" aria-label="${esc(t("cuhf.filter"))}">` : ""}
+      <div class="cuhf-files">${files.map((x) => `<div class="hf-quant cuhf-file">
+          <span class="cuhf-name" title="${esc(x.path)}">${esc(x.path)}</span><span class="mm-meta">${esc(fmtSize(x.size))}</span>
+          <select class="text-input" data-cuhf-folder="${esc(x.path)}" aria-label="${esc(t("cuhf.folder"))}" title="${esc(t("cuhf.folder"))}">
+            ${i.folders.map((d) => `<option ${d === x.folder ? "selected" : ""}>${esc(d)}</option>`).join("")}</select>
+          <button class="icon-btn" type="button" data-cuhf="dl" data-path="${esc(x.path)}" ${running ? "disabled" : ""} title="${esc(t("cuhf.download"))}" aria-label="${esc(t("cuhf.download"))}">${svgIcon("download", 16)}</button>
+        </div>`).join("") || `<p class="empty">${esc(t("cuhf.none"))}</p>`}</div>` : ""}
+    ${jobHtml}
+  </details>`;
+}
+
+function cuHfPaint() {
+  const old = $("[data-cuhf-wrap]");
+  if (!old || !CU.st) return;
+  const tmp = document.createElement("div");
+  tmp.innerHTML = cuHf(CU.st);
+  const fresh = tmp.firstElementChild;
+  if (fresh) old.replaceWith(fresh);
+  cuHfBind();
+}
+
+async function cuHfPoll() {
+  clearTimeout(CUHF.timer);
+  const was = CUHF.job?.state;
+  try {
+    CUHF.job = await api("GET", "/api/plugin/comfyui/hf_status");
+  } catch {
+    return;
+  }
+  cuHfPaint();
+  if (CUHF.job.state === "running") CUHF.timer = setTimeout(cuHfPoll, 1000);
+  else if (CUHF.job.state === "done" && was === "running") {
+    toast(t("cuhf.done", { name: CUHF.job.label }));
+    cuLoad(true);
+  }
+}
+
+function cuHfBind() {
+  const wrap = $("[data-cuhf-wrap]");
+  if (!wrap) return;
+  wrap.ontoggle = () => {
+    CUHF.open = wrap.open;
+    if (wrap.open && !CUHF.job) cuHfPoll();
+  };
+  const repoInput = $("[data-cuhf-repo]", wrap);
+  if (repoInput) repoInput.oninput = () => { CUHF.repo = repoInput.value; };
+  wrap.onsubmit = async (e) => {
+    e.preventDefault();
+    CUHF.repo = $("[data-cuhf-repo]", wrap).value.trim();
+    if (!CUHF.repo) return;
+    CUHF.loading = true;
+    CUHF.error = "";
+    CUHF.info = null;
+    cuHfPaint();
+    try {
+      CUHF.info = await api("POST", "/api/plugin/comfyui/hf_files", { repo: CUHF.repo });
+    } catch (ex) {
+      CUHF.error = ex.message;
+    }
+    CUHF.loading = false;
+    cuHfPaint();
+  };
+  const filter = $("[data-cuhf-filter]", wrap);
+  if (filter) filter.oninput = () => {
+    CUHF.filter = filter.value;
+    const pos = filter.selectionStart;
+    cuHfPaint();
+    const again = $("[data-cuhf-filter]");
+    again?.focus();
+    again?.setSelectionRange(pos, pos);
+  };
+  wrap.onclick = async (e) => {
+    e.stopPropagation();
+    const b = e.target.closest("[data-cuhf]");
+    if (!b) return;
+    if (b.dataset.cuhf === "cancel") {
+      await api("POST", "/api/plugin/comfyui/hf_cancel", {}).catch(() => {});
+      return cuHfPoll();
+    }
+    if (b.dataset.cuhf === "dl") {
+      const sel = wrap.querySelector(`[data-cuhf-folder="${CSS.escape(b.dataset.path)}"]`);
+      try {
+        CUHF.job = await api("POST", "/api/plugin/comfyui/hf_download", { repo: CUHF.info.id, path: b.dataset.path, folder: sel.value });
+        cuHfPoll();
+      } catch (ex) {
+        toast(ex.message, "error", 7000);
+      }
+    }
+  };
+}
+
 
 // Dónde está ComfyUI (ver plugins/comfyui/cu_locate.py): lo detectado
 // (portable o Desktop), o la carpeta elegida a mano con el explorador de
@@ -2757,86 +2879,77 @@ function filterFileItems() {
 }
 
 // ── Vista: Biblioteca de Imágenes y Videos Generados (#/media) ─────────
+// Barra de filtros de las bibliotecas: búsqueda, tipo (iconos), fechas y
+// orden. Los botones solo con icono llevan title y aria-label.
+function libToolbarHtml(p, f, pills) {
+  const sortOpt = (k, label) => `<option value="${k}" ${f.sort === k ? "selected" : ""}>${esc(label)}</option>`;
+  const dateOpt = (k, label) => `<option value="${k}" ${f.preset === k ? "selected" : ""}>${esc(label)}</option>`;
+  const attr = p === "media" ? "data-media-kind" : "data-file-kind";
+  const pill = ([k, icon, label]) => `<button type="button" class="lib-pill ${f.kind === k ? "active" : ""}" ${attr}="${k}"
+    title="${esc(label)}" aria-label="${esc(label)}" aria-pressed="${f.kind === k}">${svgIcon(icon, 16)}</button>`;
+  const filtered = f.q || f.kind !== "all" || f.preset !== "all" || f.from || f.to || f.sort !== "date_desc";
+  return `<section class="lib-toolbar">
+      <div class="lib-search-wrap">
+        ${svgIcon("search", 16)}
+        <input type="search" id="${p}-q" class="text-input" value="${esc(f.q)}" placeholder="${esc(t(p === "media" ? "lib.search_media" : "lib.search_files"))}" autocomplete="off" aria-label="${esc(t(p === "media" ? "lib.search_media" : "lib.search_files"))}">
+      </div>
+      <div class="lib-pills" role="group">${pills.map(pill).join("")}</div>
+      <div class="lib-filters">
+        <label class="lib-inline-field" title="${esc(t("lib.date_all"))}">${svgIcon("calendar", 15)}
+          <select id="${p}-preset" class="text-input" aria-label="${esc(t("lib.date_all"))}">
+            ${dateOpt("all", t("lib.date_all"))}${dateOpt("today", t("lib.date_today"))}${dateOpt("7d", t("lib.date_7d"))}${dateOpt("30d", t("lib.date_30d"))}${dateOpt("range", t("lib.date_range"))}
+          </select></label>
+        <span class="lib-range" ${f.preset === "range" || f.from || f.to ? "" : "hidden"}>
+          <input type="date" id="${p}-from" class="text-input lib-date" value="${esc(f.from)}" title="${esc(t("lib.date_from"))}" aria-label="${esc(t("lib.date_from"))}">
+          <span class="lib-dash" aria-hidden="true">–</span>
+          <input type="date" id="${p}-to" class="text-input lib-date" value="${esc(f.to)}" title="${esc(t("lib.date_to"))}" aria-label="${esc(t("lib.date_to"))}">
+        </span>
+        <label class="lib-inline-field" title="${esc(t("lib.sort_label"))}">${svgIcon("sort", 15)}
+          <select id="${p}-sort" class="text-input" aria-label="${esc(t("lib.sort_label"))}">
+            ${sortOpt("date_desc", t("lib.sort_date_desc"))}${sortOpt("date_asc", t("lib.sort_date_asc"))}
+            ${sortOpt("name_asc", t("lib.sort_name_asc"))}${sortOpt("name_desc", t("lib.sort_name_desc"))}
+            ${sortOpt("size_desc", t("lib.sort_size_desc"))}${sortOpt("size_asc", t("lib.sort_size_asc"))}
+          </select></label>
+        ${filtered ? `<button type="button" class="icon-btn small" data-lib-act="clear-${p === "media" ? "media" : "files"}" title="${esc(t("lib.clear_filters"))}" aria-label="${esc(t("lib.clear_filters"))}">${svgIcon("eraser", 16)}</button>` : ""}
+      </div>
+      <div class="lib-count-bar" id="${p}-count-bar"></div>
+    </section>`;
+}
+
+function libHeadHtml(icon, title, sub, otherAct, otherIcon, otherLabel) {
+  return `<header class="lib-head">
+      <button type="button" class="icon-btn" data-lib-act="home" title="${esc(t("lib.back_home"))}" aria-label="${esc(t("lib.back_home"))}">${svgIcon("arrowLeft", 18)}</button>
+      <div class="lib-head-text">
+        <h1>${svgIcon(icon, 22)} ${esc(title)}</h1>
+        <p>${esc(sub)}</p>
+      </div>
+      <button type="button" class="icon-btn" data-lib-act="${otherAct}" title="${esc(otherLabel)}" aria-label="${esc(otherLabel)}">${svgIcon(otherIcon, 18)}</button>
+    </header>`;
+}
+
 function renderMediaView() {
   const main = $("#main");
   const ms = DASH.data?.media_stats || { total: 0, total_bytes: 0 };
   const f = DASH.mediaFilter;
-  const pill = (k, label) => `<button type="button" class="lib-pill ${f.kind === k ? "active" : ""}" data-media-kind="${k}">${esc(label)}</button>`;
-  const sortOpt = (k, label) => `<option value="${k}" ${f.sort === k ? "selected" : ""}>${esc(label)}</option>`;
-  const dateOpt = (k, label) => `<option value="${k}" ${f.preset === k ? "selected" : ""}>${esc(label)}</option>`;
-
   main.innerHTML = `
   <div class="lib-view">
-    <header class="lib-head">
-      <button type="button" class="btn btn-sm" data-lib-act="home">${svgIcon("arrowLeft", 16)} ${esc(t("lib.back_home"))}</button>
-      <div class="lib-head-text">
-        <h1>${svgIcon("image", 24)} ${esc(t("lib.media_title"))}</h1>
-        <p>${esc(t("lib.media_sub", { n: ms.total || 0, size: fmtSize(ms.total_bytes || 0) }))}</p>
-      </div>
-      <button type="button" class="btn" data-lib-act="go-files">${svgIcon("folder", 16)} ${esc(t("dash.btn_files"))}</button>
-    </header>
-
-    <section class="card lib-toolbar">
-      <div class="lib-toolbar-row">
-        <div class="lib-search-wrap">
-          ${svgIcon("search", 16)}
-          <input type="search" id="media-q" class="text-input" value="${esc(f.q)}" placeholder="${esc(t("lib.search_media"))}" autocomplete="off">
-        </div>
-        <div class="lib-pills" role="group">
-          ${pill("all", t("lib.filter_all"))}
-          ${pill("image", t("lib.filter_image"))}
-          ${pill("edit", t("lib.filter_edit"))}
-          ${pill("video", t("lib.filter_video"))}
-        </div>
-      </div>
-      <div class="lib-toolbar-row lib-filters-sub">
-        <div class="lib-date-group">
-          <label class="lib-inline-field">
-            <span>${svgIcon("calendar", 15)}</span>
-            <select id="media-preset" class="text-input">
-              ${dateOpt("all", t("lib.date_all"))}
-              ${dateOpt("today", t("lib.date_today"))}
-              ${dateOpt("7d", t("lib.date_7d"))}
-              ${dateOpt("30d", t("lib.date_30d"))}
-            </select>
-          </label>
-          <label class="lib-inline-field">
-            <span>${esc(t("lib.date_from"))}</span>
-            <input type="date" id="media-from" class="text-input" value="${esc(f.from)}">
-          </label>
-          <label class="lib-inline-field">
-            <span>${esc(t("lib.date_to"))}</span>
-            <input type="date" id="media-to" class="text-input" value="${esc(f.to)}">
-          </label>
-        </div>
-        <div class="lib-sort-group">
-          <label class="lib-inline-field">
-            <span>${svgIcon("sort", 15)} ${esc(t("lib.sort_label"))}</span>
-            <select id="media-sort" class="text-input">
-              ${sortOpt("date_desc", t("lib.sort_date_desc"))}
-              ${sortOpt("date_asc", t("lib.sort_date_asc"))}
-              ${sortOpt("name_asc", t("lib.sort_name_asc"))}
-              ${sortOpt("name_desc", t("lib.sort_name_desc"))}
-              ${sortOpt("size_desc", t("lib.sort_size_desc"))}
-              ${sortOpt("size_asc", t("lib.sort_size_asc"))}
-            </select>
-          </label>
-          <button type="button" class="btn btn-sm" data-lib-act="clear-media">${esc(t("lib.clear_filters"))}</button>
-        </div>
-      </div>
-      <div class="lib-count-bar" id="media-count-bar"></div>
-    </section>
-
+    ${libHeadHtml("image", t("lib.media_title"), t("lib.media_sub", { n: ms.total || 0, size: fmtSize(ms.total_bytes || 0) }), "go-files", "folder", t("dash.btn_files"))}
+    ${libToolbarHtml("media", f, [["all", "grid", t("lib.filter_all")], ["image", "image", t("lib.filter_image")],
+      ["edit", "pencil", t("lib.filter_edit")], ["video", "film", t("lib.filter_video")]])}
     <div id="media-lib-grid" class="media-lib-grid"></div>
   </div>`;
 
   paintMediaGrid();
 
   $("#media-q").oninput = (e) => { DASH.mediaFilter.q = e.target.value; paintMediaGrid(); };
-  $("#media-preset").onchange = (e) => { DASH.mediaFilter.preset = e.target.value; paintMediaGrid(); };
-  $("#media-from").onchange = (e) => { DASH.mediaFilter.from = e.target.value; paintMediaGrid(); };
-  $("#media-to").onchange = (e) => { DASH.mediaFilter.to = e.target.value; paintMediaGrid(); };
-  $("#media-sort").onchange = (e) => { DASH.mediaFilter.sort = e.target.value; paintMediaGrid(); };
+  $("#media-preset").onchange = (e) => {
+    DASH.mediaFilter.preset = e.target.value;
+    if (e.target.value !== "range") Object.assign(DASH.mediaFilter, { from: "", to: "" });
+    libRerender("media");
+  };
+  $("#media-from").onchange = (e) => { DASH.mediaFilter.from = e.target.value; libRerender("media"); };
+  $("#media-to").onchange = (e) => { DASH.mediaFilter.to = e.target.value; libRerender("media"); };
+  $("#media-sort").onchange = (e) => { DASH.mediaFilter.sort = e.target.value; libRerender("media"); };
 
   main.onclick = (e) => {
     const act = e.target.closest("[data-lib-act]")?.dataset.libAct;
@@ -2849,8 +2962,7 @@ function renderMediaView() {
     const kindBtn = e.target.closest("[data-media-kind]");
     if (kindBtn) {
       DASH.mediaFilter.kind = kindBtn.dataset.mediaKind;
-      $$("[data-media-kind]").forEach((b) => b.classList.toggle("active", b.dataset.mediaKind === DASH.mediaFilter.kind));
-      return paintMediaGrid();
+      return renderMediaView();
     }
     const prevBtn = e.target.closest("[data-media-idx]");
     if (prevBtn) {
@@ -2867,6 +2979,13 @@ function renderMediaView() {
       if (items[idx]) useLibraryItemInChat(items[idx]);
     }
   };
+}
+
+// Tras cambiar un filtro de fecha/orden: se vuelve a dibujar la vista (para
+// mostrar u ocultar "limpiar filtros") sin perder el foco de la búsqueda.
+function libRerender(p) {
+  if (p === "media") renderMediaView();
+  else renderFilesView();
 }
 
 function paintMediaGrid() {
@@ -2891,9 +3010,9 @@ function paintMediaGrid() {
       <button type="button" class="media-thumb-btn" data-media-idx="${idx}" aria-label="${esc(t("lib.preview"))} ${esc(m.name)}">
         ${isVid
           ? `<video src="${esc(m.url)}" preload="metadata" muted loop playsinline onmouseenter="this.play().catch(()=>{})" onmouseleave="this.pause()"></video>
-             <span class="media-vid-badge">${svgIcon("film", 14)} ${esc(kindLabel)}</span>`
+             <span class="media-vid-badge" title="${esc(kindLabel)}">${svgIcon("film", 14)}</span>`
           : `<img src="${esc(m.url)}" alt="${esc(m.name)}" loading="lazy">
-             <span class="media-kind-badge ${m.kind}">${esc(kindLabel)}</span>`}
+             ${m.kind === "edit" ? `<span class="media-kind-badge edit" title="${esc(kindLabel)}">${svgIcon("pencil", 13)}</span>` : ""}`}
         ${dims ? `<span class="media-dim-badge">${esc(dims)}</span>` : ""}
       </button>
       <div class="media-card-body">
@@ -2903,15 +3022,12 @@ function paintMediaGrid() {
           <span>· ${esc(fmtSize(m.size || 0))}</span>
           ${m.took ? `<span>· ${m.took} s</span>` : ""}
         </div>
-        ${(m.workflow || m.assistant_label) ? `<div class="media-card-tags">
-          ${m.assistant_label ? `<span class="badge">${esc(m.assistant_label)}</span>` : ""}
-          ${m.workflow ? `<span class="badge">${esc(m.workflow)}</span>` : ""}
-        </div>` : ""}
         ${m.prompt ? `<p class="media-card-prompt" title="${esc(m.prompt)}">${esc(m.prompt)}</p>` : ""}
         <div class="media-card-acts">
-          <button type="button" class="btn btn-sm btn-primary" data-media-idx="${idx}">${svgIcon("eye", 15)} ${esc(t("lib.preview"))}</button>
-          <button type="button" class="btn btn-sm" data-media-chat-idx="${idx}">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
-          <a class="btn btn-sm" href="${esc(m.url)}" download="${esc(m.name)}" title="${esc(t("lib.download"))}">${svgIcon("download", 15)}</a>
+          ${m.assistant_label ? `<span class="badge" title="${esc(m.workflow || "")}">${esc(m.assistant_label)}</span>` : ""}
+          <span class="spacer"></span>
+          <button type="button" class="icon-btn small" data-media-chat-idx="${idx}" title="${esc(t("lib.use_in_chat"))}" aria-label="${esc(t("lib.use_in_chat"))}">${ICON.chat}</button>
+          <a class="icon-btn small" href="${esc(m.url)}" download="${esc(m.name)}" title="${esc(t("lib.download"))}" aria-label="${esc(t("lib.download"))}">${svgIcon("download", 16)}</a>
           ${libDelBtn("media", idx)}
         </div>
       </div>
@@ -2924,84 +3040,26 @@ function renderFilesView() {
   const main = $("#main");
   const fs = DASH.data?.file_stats || { total: 0, total_bytes: 0 };
   const f = DASH.filesFilter;
-  const pill = (k, label) => `<button type="button" class="lib-pill ${f.kind === k ? "active" : ""}" data-file-kind="${k}">${esc(label)}</button>`;
-  const sortOpt = (k, label) => `<option value="${k}" ${f.sort === k ? "selected" : ""}>${esc(label)}</option>`;
-  const dateOpt = (k, label) => `<option value="${k}" ${f.preset === k ? "selected" : ""}>${esc(label)}</option>`;
-
   main.innerHTML = `
   <div class="lib-view">
-    <header class="lib-head">
-      <button type="button" class="btn btn-sm" data-lib-act="home">${svgIcon("arrowLeft", 16)} ${esc(t("lib.back_home"))}</button>
-      <div class="lib-head-text">
-        <h1>${svgIcon("folder", 24)} ${esc(t("lib.files_title"))}</h1>
-        <p>${esc(t("lib.files_sub", { n: fs.total || 0, size: fmtSize(fs.total_bytes || 0) }))}</p>
-      </div>
-      <button type="button" class="btn" data-lib-act="go-media">${svgIcon("image", 16)} ${esc(t("dash.btn_media"))}</button>
-    </header>
-
-    <section class="card lib-toolbar">
-      <div class="lib-toolbar-row">
-        <div class="lib-search-wrap">
-          ${svgIcon("search", 16)}
-          <input type="search" id="files-q" class="text-input" value="${esc(f.q)}" placeholder="${esc(t("lib.search_files"))}" autocomplete="off">
-        </div>
-        <div class="lib-pills" role="group">
-          ${pill("all", t("lib.filter_all"))}
-          ${pill("generated", t("lib.filter_generated"))}
-          ${pill("attachment", t("lib.filter_attachment"))}
-          ${pill("doc", t("lib.filter_doc"))}
-          ${pill("audio", t("lib.filter_audio"))}
-          ${pill("media", t("lib.filter_media"))}
-        </div>
-      </div>
-      <div class="lib-toolbar-row lib-filters-sub">
-        <div class="lib-date-group">
-          <label class="lib-inline-field">
-            <span>${svgIcon("calendar", 15)}</span>
-            <select id="files-preset" class="text-input">
-              ${dateOpt("all", t("lib.date_all"))}
-              ${dateOpt("today", t("lib.date_today"))}
-              ${dateOpt("7d", t("lib.date_7d"))}
-              ${dateOpt("30d", t("lib.date_30d"))}
-            </select>
-          </label>
-          <label class="lib-inline-field">
-            <span>${esc(t("lib.date_from"))}</span>
-            <input type="date" id="files-from" class="text-input" value="${esc(f.from)}">
-          </label>
-          <label class="lib-inline-field">
-            <span>${esc(t("lib.date_to"))}</span>
-            <input type="date" id="files-to" class="text-input" value="${esc(f.to)}">
-          </label>
-        </div>
-        <div class="lib-sort-group">
-          <label class="lib-inline-field">
-            <span>${svgIcon("sort", 15)} ${esc(t("lib.sort_label"))}</span>
-            <select id="files-sort" class="text-input">
-              ${sortOpt("date_desc", t("lib.sort_date_desc"))}
-              ${sortOpt("date_asc", t("lib.sort_date_asc"))}
-              ${sortOpt("name_asc", t("lib.sort_name_asc"))}
-              ${sortOpt("name_desc", t("lib.sort_name_desc"))}
-              ${sortOpt("size_desc", t("lib.sort_size_desc"))}
-              ${sortOpt("size_asc", t("lib.sort_size_asc"))}
-            </select>
-          </label>
-          <button type="button" class="btn btn-sm" data-lib-act="clear-files">${esc(t("lib.clear_filters"))}</button>
-        </div>
-      </div>
-      <div class="lib-count-bar" id="files-count-bar"></div>
-    </section>
-
+    ${libHeadHtml("folder", t("lib.files_title"), t("lib.files_sub", { n: fs.total || 0, size: fmtSize(fs.total_bytes || 0) }), "go-media", "image", t("dash.btn_media"))}
+    ${libToolbarHtml("files", f, [["all", "grid", t("lib.filter_all")], ["generated", "wand", t("lib.filter_generated")],
+      ["attachment", "clip", t("lib.filter_attachment")], ["doc", "file", t("lib.filter_doc")],
+      ["audio", "music", t("lib.filter_audio")], ["media", "image", t("lib.filter_media")]])}
     <div id="files-lib-list" class="files-lib-list"></div>
   </div>`;
 
   paintFilesList();
 
   $("#files-q").oninput = (e) => { DASH.filesFilter.q = e.target.value; paintFilesList(); };
-  $("#files-preset").onchange = (e) => { DASH.filesFilter.preset = e.target.value; paintFilesList(); };
-  $("#files-from").onchange = (e) => { DASH.filesFilter.from = e.target.value; paintFilesList(); };
-  $("#files-to").onchange = (e) => { DASH.filesFilter.to = e.target.value; paintFilesList(); };
-  $("#files-sort").onchange = (e) => { DASH.filesFilter.sort = e.target.value; paintFilesList(); };
+  $("#files-preset").onchange = (e) => {
+    DASH.filesFilter.preset = e.target.value;
+    if (e.target.value !== "range") Object.assign(DASH.filesFilter, { from: "", to: "" });
+    libRerender("files");
+  };
+  $("#files-from").onchange = (e) => { DASH.filesFilter.from = e.target.value; libRerender("files"); };
+  $("#files-to").onchange = (e) => { DASH.filesFilter.to = e.target.value; libRerender("files"); };
+  $("#files-sort").onchange = (e) => { DASH.filesFilter.sort = e.target.value; libRerender("files"); };
 
   main.onclick = (e) => {
     const act = e.target.closest("[data-lib-act]")?.dataset.libAct;
@@ -3014,8 +3072,7 @@ function renderFilesView() {
     const kindBtn = e.target.closest("[data-file-kind]");
     if (kindBtn) {
       DASH.filesFilter.kind = kindBtn.dataset.fileKind;
-      $$("[data-file-kind]").forEach((b) => b.classList.toggle("active", b.dataset.fileKind === DASH.filesFilter.kind));
-      return paintFilesList();
+      return renderFilesView();
     }
     const prevBtn = e.target.closest("[data-file-idx]");
     if (prevBtn) {
@@ -3065,21 +3122,21 @@ function paintFilesList() {
         <div class="file-lib-top">
           <strong class="file-lib-name" title="${esc(it.name)}">${esc(it.name)}</strong>
           <span class="badge">${esc(it.ext ? `.${it.ext.toUpperCase()}` : kindLabel)}</span>
-          <span class="badge ${it.origin === "attachment" ? "" : "good"}">${esc(t(originKey))}</span>
-          ${it.assistant_label ? `<span class="badge">${esc(it.assistant_label)}</span>` : ""}
+          <span class="lib-origin" title="${esc(t(originKey))}" aria-label="${esc(t(originKey))}">${svgIcon(it.origin === "attachment" ? "clip" : it.origin === "converted" ? "fileConvert" : "wand", 14)}</span>
         </div>
         <div class="file-lib-meta">
           <span>${esc(fmtShortDate(it.at))}</span>
           <span>· ${esc(fmtSize(it.size || 0))}</span>
+          ${it.assistant_label ? `<span>· ${esc(it.assistant_label)}</span>` : ""}
           ${it.from_name ? `<span>· ${esc(t("file.from", { name: it.from_name }))}</span>` : ""}
           ${it.info ? `<span>· ${esc(it.info)}</span>` : ""}
         </div>
         ${it.preview_text ? `<p class="file-lib-snippet">${esc(it.preview_text.slice(0, 220))}${it.preview_text.length > 220 ? "…" : ""}</p>` : ""}
       </div>
       <div class="file-lib-acts">
-        <button type="button" class="btn btn-sm btn-primary" data-file-idx="${idx}">${svgIcon("eye", 15)} ${esc(t("lib.preview"))}</button>
-        <button type="button" class="btn btn-sm" data-file-chat-idx="${idx}">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
-        <a class="btn btn-sm" href="${esc(it.url)}" download="${esc(it.name)}">${svgIcon("download", 15)} ${esc(t("lib.download"))}</a>
+        <button type="button" class="icon-btn small" data-file-idx="${idx}" title="${esc(t("lib.preview"))}" aria-label="${esc(t("lib.preview"))}">${svgIcon("eye", 16)}</button>
+        <button type="button" class="icon-btn small" data-file-chat-idx="${idx}" title="${esc(t("lib.use_in_chat"))}" aria-label="${esc(t("lib.use_in_chat"))}">${ICON.chat}</button>
+        <a class="icon-btn small" href="${esc(it.url)}" download="${esc(it.name)}" title="${esc(t("lib.download"))}" aria-label="${esc(t("lib.download"))}">${svgIcon("download", 16)}</a>
         ${libDelBtn("files", idx)}
       </div>
     </article>`;
@@ -3098,7 +3155,7 @@ function libCheck(kind, it) {
 
 function libDelBtn(kind, idx) {
   if (isGuest()) return "";
-  return `<button type="button" class="btn btn-sm lib-del" data-lib-del="${idx}" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 15)}</button>`;
+  return `<button type="button" class="icon-btn small lib-del" data-lib-del="${idx}" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 16)}</button>`;
 }
 
 function paintLibSelBar(kind, items, total) {
@@ -3116,9 +3173,9 @@ function paintLibSelBar(kind, items, total) {
   const allShown = items.length && items.every((x) => DASH.sel[kind].has(x.id));
   bar.innerHTML = `${showing}<div class="lib-selbar">
     ${n ? `<strong>${esc(t("lib.selected", { n }))}</strong>` : ""}
-    ${items.length ? `<button type="button" class="btn btn-sm" data-lib-act="sel-all">${svgIcon("check", 15)} ${esc(t(allShown ? "lib.unselect_all" : "lib.select_all"))}</button>` : ""}
-    ${n ? `<button type="button" class="btn btn-sm" data-lib-act="sel-clear">${esc(t("lib.select_clear"))}</button>
-      <button type="button" class="btn btn-sm btn-danger" data-lib-act="sel-delete">${svgIcon("trash", 15)} ${esc(t("lib.delete_n", { n }))}</button>` : ""}
+    ${items.length ? `<button type="button" class="icon-btn small ${allShown ? "on" : ""}" data-lib-act="sel-all" title="${esc(t(allShown ? "lib.unselect_all" : "lib.select_all"))}" aria-label="${esc(t(allShown ? "lib.unselect_all" : "lib.select_all"))}">${svgIcon("check", 16)}</button>` : ""}
+    ${n ? `<button type="button" class="icon-btn small" data-lib-act="sel-clear" title="${esc(t("lib.select_clear"))}" aria-label="${esc(t("lib.select_clear"))}">${svgIcon("x", 16)}</button>
+      <button type="button" class="btn btn-sm btn-danger" data-lib-act="sel-delete" title="${esc(t("lib.delete_n", { n }))}">${svgIcon("trash", 15)} ${n}</button>` : ""}
   </div>`;
 }
 
@@ -3216,13 +3273,13 @@ function openMediaLightbox(items, startIndex = 0) {
         ${cur.prompt ? `<p class="iv-meta-prompt">${esc(cur.prompt)}</p>` : ""}
       </div>
       <div class="iv-nav-btns">
-        <button type="button" class="btn btn-sm btn-primary" data-iv-use-chat="1">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
-        ${isGuest() ? "" : `<button type="button" class="btn btn-sm lib-del" data-iv-del="1">${svgIcon("trash", 15)} ${esc(t("lib.delete"))}</button>`}
         ${items.length > 1 ? `
-          <button type="button" class="btn btn-sm" data-iv-step="-1" ${idx === 0 ? "disabled" : ""}>${svgIcon("chevronLeft", 15)} ${esc(t("lib.prev_item"))}</button>
+          <button type="button" class="icon-btn" data-iv-step="-1" ${idx === 0 ? "disabled" : ""} title="${esc(t("lib.prev_item"))}" aria-label="${esc(t("lib.prev_item"))}">${svgIcon("chevronLeft", 18)}</button>
           <span class="iv-nav-pos">${idx + 1} / ${items.length}</span>
-          <button type="button" class="btn btn-sm" data-iv-step="1" ${idx === items.length - 1 ? "disabled" : ""}>${esc(t("lib.next_item"))} ${svgIcon("chevronRight", 15)}</button>
+          <button type="button" class="icon-btn" data-iv-step="1" ${idx === items.length - 1 ? "disabled" : ""} title="${esc(t("lib.next_item"))}" aria-label="${esc(t("lib.next_item"))}">${svgIcon("chevronRight", 18)}</button>
         ` : ""}
+        <button type="button" class="icon-btn" data-iv-use-chat="1" title="${esc(t("lib.use_in_chat"))}" aria-label="${esc(t("lib.use_in_chat"))}">${ICON.chat}</button>
+        ${isGuest() ? "" : `<button type="button" class="icon-btn lib-del" data-iv-del="1" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 17)}</button>`}
       </div>`;
     dlg.append(meta);
     meta.onclick = async (ev) => {
@@ -3280,14 +3337,14 @@ function openFilePreviewModal(items, startIndex = 0) {
         </div>
         <div class="fp-acts">
           ${items.length > 1 ? `
-            <button type="button" class="btn btn-sm" data-fp-step="-1" ${idx === 0 ? "disabled" : ""}>${svgIcon("chevronLeft", 15)}</button>
+            <button type="button" class="icon-btn small" data-fp-step="-1" ${idx === 0 ? "disabled" : ""} title="${esc(t("lib.prev_item"))}" aria-label="${esc(t("lib.prev_item"))}">${svgIcon("chevronLeft", 16)}</button>
             <span class="fp-pos">${idx + 1} / ${items.length}</span>
-            <button type="button" class="btn btn-sm" data-fp-step="1" ${idx === items.length - 1 ? "disabled" : ""}>${svgIcon("chevronRight", 15)}</button>
+            <button type="button" class="icon-btn small" data-fp-step="1" ${idx === items.length - 1 ? "disabled" : ""} title="${esc(t("lib.next_item"))}" aria-label="${esc(t("lib.next_item"))}">${svgIcon("chevronRight", 16)}</button>
           ` : ""}
-          <button type="button" class="btn btn-sm" data-fp-use-chat="1">${ICON.chat} ${esc(t("lib.use_in_chat"))}</button>
-          ${isGuest() ? "" : `<button type="button" class="btn btn-sm lib-del" data-fp-del="1" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 15)}</button>`}
-          ${(kind === "image" || kind === "video") ? `<button type="button" class="btn btn-sm" data-fp-zoom="1">${svgIcon("maximize", 15)} ${esc(t("iv.view"))}</button>` : ""}
-          <a class="btn btn-sm btn-primary" href="${esc(it.url)}" download="${esc(it.name)}">${svgIcon("download", 15)} ${esc(t("lib.download"))}</a>
+          <button type="button" class="icon-btn small" data-fp-use-chat="1" title="${esc(t("lib.use_in_chat"))}" aria-label="${esc(t("lib.use_in_chat"))}">${ICON.chat}</button>
+          ${(kind === "image" || kind === "video") ? `<button type="button" class="icon-btn small" data-fp-zoom="1" title="${esc(t("iv.view"))}" aria-label="${esc(t("iv.view"))}">${svgIcon("maximize", 16)}</button>` : ""}
+          <a class="icon-btn small" href="${esc(it.url)}" download="${esc(it.name)}" title="${esc(t("lib.download"))}" aria-label="${esc(t("lib.download"))}">${svgIcon("download", 16)}</a>
+          ${isGuest() ? "" : `<button type="button" class="icon-btn small lib-del" data-fp-del="1" title="${esc(t("lib.delete"))}" aria-label="${esc(t("lib.delete"))}">${svgIcon("trash", 16)}</button>`}
           <button type="button" class="icon-btn" data-fp-close="1" aria-label="${esc(t("chat.close"))}">${svgIcon("x", 18)}</button>
         </div>
       </header>
@@ -3580,3 +3637,406 @@ async function openLibraryPickerModal() {
   }).catch(() => {});
 }
 window.openLibraryPickerModal = openLibraryPickerModal;
+
+
+// ── Modelos de Hugging Face (Ajustes → Modelos de IA) ──────────────────
+// Buscar repos GGUF, ver sus cuantizaciones y descargar una: Ollama la
+// baja sola con hf.co/<repo>:<quant> (los privados/restringidos los baja
+// el servidor con el token y los importa). El progreso es el mismo de
+// "ollama pull" (S.pull / renderPullStatus en app.js).
+const HFS = { open: false, q: "", results: null, searching: false, repo: null, info: null, loading: false, token: null, error: "" };
+
+function hfBoxHtml() {
+  const tok = HFS.token;
+  const results = HFS.results == null ? "" : HFS.results.length
+    ? `<div class="hf-results">${HFS.results.map((m) => `
+        <button type="button" class="hf-repo ${HFS.repo === m.id ? "active" : ""}" data-hf="repo" data-repo="${esc(m.id)}">
+          <span class="hf-repo-name">${esc(m.id)}</span>
+          <span class="hf-repo-meta">${svgIcon("download", 12)} ${esc(fmtCount(m.downloads))}${m.gated || m.private ? ` · ${svgIcon("shield", 12)}` : ""}</span>
+        </button>`).join("")}</div>`
+    : `<p class="empty">${esc(t("hf.none"))}</p>`;
+  let quants = "";
+  if (HFS.loading) quants = `<p class="note">${esc(t("hf.loading"))}</p>`;
+  else if (HFS.info) {
+    const i = HFS.info;
+    const locked = (i.private || i.gated) && !tok?.has_token;
+    quants = `<div class="hf-quants">
+      <div class="hf-quants-head"><strong>${esc(i.id)}</strong>
+        <a class="icon-btn" href="https://huggingface.co/${esc(i.id)}" target="_blank" rel="noopener" title="${esc(t("hf.open"))}" aria-label="${esc(t("hf.open"))}">${svgIcon("globe", 15)}</a>
+        ${i.vision ? `<span class="badge">${esc(t("model.vision"))}</span>` : ""}
+        ${i.private || i.gated ? `<span class="badge bad">${esc(t(i.private ? "hf.private" : "hf.gated"))}</span>` : ""}</div>
+      ${locked ? `<div class="callout warn"><div>${esc(t("hf.need_token"))}</div></div>` : ""}
+      ${i.quants.length ? `<div class="hf-list">${i.quants.map((q) => `<div class="hf-quant">
+          <span class="hf-q">${esc(q.quant)}</span><span class="mm-meta">${esc(fmtSize(q.size))}${q.sharded ? ` · ${esc(t("hf.sharded", { n: q.files.length }))}` : ""}</span>
+          <button class="btn btn-sm" type="button" data-hf="pull" data-quant="${esc(q.quant)}" ${S.pull?.state === "running" || locked ? "disabled" : ""}
+            title="${esc(t("hf.download_t", { name: `hf.co/${i.id}:${q.quant}` }))}" aria-label="${esc(t("hf.download_t", { name: `hf.co/${i.id}:${q.quant}` }))}">${svgIcon("download", 14)} <span class="btn-label">${esc(t("hf.download"))}</span></button>
+        </div>`).join("")}</div>` : `<p class="empty">${esc(t("hf.no_gguf"))}</p>`}
+    </div>`;
+  }
+  return `
+    <form class="ic-row" data-hf-form="search">
+      <input class="text-input" id="hf-q" value="${esc(HFS.q)}" placeholder="${esc(t("hf.ph"))}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="${esc(t("hf.ph"))}">
+      <button class="btn" type="submit" ${HFS.searching ? "disabled" : ""} title="${esc(t("hf.search"))}" aria-label="${esc(t("hf.search"))}">${svgIcon("search", 16)}</button>
+    </form>
+    <small class="note">${t("hf.help")}</small>
+    ${HFS.error ? `<div class="callout warn"><div>${esc(HFS.error)}</div></div>` : ""}
+    ${results}${quants}
+    <details class="subtle hf-token" ${tok && !tok.has_token && HFS.info?.gated ? "open" : ""}>
+      <summary>${svgIcon("shield", 14)} ${esc(t(tok?.has_token ? "hf.token_saved" : "hf.token"))}</summary>
+      <form class="ic-row" data-hf-form="token">
+        <input class="text-input" type="password" id="hf-token" placeholder="${esc(tok?.has_token ? "••••••••" : "hf_…")}" autocomplete="off" aria-label="${esc(t("hf.token"))}">
+        <button class="btn btn-sm" type="submit">${esc(t("hf.token_save"))}</button>
+        ${tok?.has_token ? `<button class="btn btn-sm btn-ghost-danger" type="button" data-hf="token-clear" title="${esc(t("hf.token_clear"))}" aria-label="${esc(t("hf.token_clear"))}">${svgIcon("trash", 14)}</button>` : ""}
+      </form>
+      <small class="note">${esc(t("hf.token_help"))}</small>
+    </details>`;
+}
+
+const fmtCount = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} M` : n >= 1e3 ? `${Math.round(n / 1e3)} k` : String(n || 0));
+
+function renderHfBox() {
+  const box = $("#hf-box");
+  if (!box) return;
+  box.innerHTML = hfBoxHtml();
+  if (HFS.token == null) {
+    HFS.token = {};
+    api("GET", "/api/hf/token").then((r) => { HFS.token = r; renderHfBox(); }).catch(() => {});
+  }
+}
+
+async function hfSearch(q) {
+  HFS.q = q;
+  HFS.searching = true;
+  HFS.error = "";
+  renderHfBox();
+  try {
+    // Un repo pegado tal cual (usuario/repo o su enlace): directo a sus cuantizaciones.
+    const repo = q.replace(/^https?:\/\/(huggingface\.co|hf\.co)\//, "").replace(/^hf\.co\//, "").split(/[?#:]/)[0];
+    if (/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+      HFS.results = null;
+      await hfOpenRepo(repo);
+    } else {
+      HFS.results = (await api("GET", `/api/hf/search?q=${encodeURIComponent(q)}`)).models;
+      HFS.info = null;
+      HFS.repo = null;
+    }
+  } catch (e) {
+    HFS.error = e.message;
+  }
+  HFS.searching = false;
+  renderHfBox();
+}
+
+async function hfOpenRepo(repo) {
+  HFS.repo = repo;
+  HFS.loading = true;
+  HFS.info = null;
+  HFS.error = "";
+  renderHfBox();
+  try {
+    HFS.info = await api("GET", `/api/hf/repo?repo=${encodeURIComponent(repo)}`);
+  } catch (e) {
+    HFS.error = e.message;
+  }
+  HFS.loading = false;
+  renderHfBox();
+}
+
+function mountHfBox(card) {
+  const det = card.querySelector("#hf-details");
+  if (!det) return;
+  det.addEventListener("input", (e) => { if (e.target.id === "hf-q") HFS.q = e.target.value; });
+  det.ontoggle = () => { HFS.open = det.open; };
+  renderHfBox();
+  det.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target.closest("[data-hf-form]");
+    if (form?.dataset.hfForm === "search") {
+      const q = $("#hf-q").value.trim();
+      if (q) hfSearch(q);
+    } else if (form?.dataset.hfForm === "token") {
+      const v = $("#hf-token").value.trim();
+      if (!v) return;
+      try {
+        HFS.token = await api("PUT", "/api/hf/token", { token: v });
+        toast(t("hf.token_ok"));
+        if (HFS.repo) hfOpenRepo(HFS.repo);
+      } catch (err) {
+        toast(err.message, "error", 6000);
+      }
+      renderHfBox();
+    }
+  });
+  det.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-hf]");
+    if (!b) return;
+    if (b.dataset.hf === "repo") hfOpenRepo(b.dataset.repo);
+    else if (b.dataset.hf === "token-clear") {
+      HFS.token = await api("PUT", "/api/hf/token", { token: "" }).catch(() => HFS.token);
+      renderHfBox();
+    } else if (b.dataset.hf === "pull") {
+      b.disabled = true;
+      try {
+        S.pull = await api("POST", "/api/hf/pull", { repo: HFS.info.id, quant: b.dataset.quant });
+        S.pullWatching = true;
+        $("#pull-box") && ($("#pull-box").open = true);
+        renderPullStatus();
+        pollPull();
+      } catch (err) {
+        toast(err.message, "error", 7000);
+        b.disabled = false;
+      }
+    }
+  });
+}
+
+
+// ── Proveedores de IA por API (Ajustes → Modelos de IA) ────────────────
+// Opcionales: compatibles con OpenAI (/v1: OpenAI, OpenRouter, LM Studio,
+// llama-server…), Anthropic y Gemini. La clave se guarda cifrada en la PC
+// (config/secrets.json) y nunca vuelve a la página. Un asistente usa uno
+// eligiendo "@proveedor/modelo" como modelo (ver app/core/llm_remote.py).
+const PROV = { list: null, kinds: [], defaults: {}, edit: null, models: null, test: null, busy: false };
+const PROV_PRESETS = [
+  { id: "openai", name: "OpenAI", kind: "openai", base_url: "https://api.openai.com/v1" },
+  { id: "openrouter", name: "OpenRouter", kind: "openai", base_url: "https://openrouter.ai/api/v1" },
+  { id: "lmstudio", name: "LM Studio", kind: "openai", base_url: "http://127.0.0.1:1234/v1" },
+  { id: "llamacpp", name: "llama-server", kind: "openai", base_url: "http://127.0.0.1:8080/v1" },
+  { id: "anthropic", name: "Anthropic", kind: "anthropic", base_url: "https://api.anthropic.com/v1" },
+  { id: "gemini", name: "Google Gemini", kind: "gemini", base_url: "https://generativelanguage.googleapis.com/v1beta" },
+];
+
+async function loadProviders() {
+  try {
+    const r = await api("GET", "/api/llm/providers");
+    Object.assign(PROV, { list: r.providers, kinds: r.kinds, defaults: r.defaults });
+  } catch {
+    PROV.list = PROV.list || [];
+  }
+  renderProvidersCard();
+}
+
+function provRowHtml(p) {
+  const models = p.models || [];
+  return `<div class="mm-row">
+    <div class="mm-main">
+      <div class="mm-name">${svgIcon("server", 15)}<strong>${esc(p.name || p.id)}</strong>
+        <span class="badge">${esc(t(`prov.kind_${p.kind}`))}</span>
+        ${p.has_key ? `<span class="badge good" title="${esc(t("prov.key_saved"))}">${svgIcon("shield", 11)}</span>` : ""}
+        ${p.enabled ? "" : `<span class="badge bad">${esc(t("prov.disabled"))}</span>`}</div>
+      <div class="mm-meta">${esc(p.base_url)}</div>
+      <div class="badges">${models.map((m) => `<span class="badge use" title="@${esc(p.id)}/${esc(m.name)}">${esc(m.name)}</span>`).join("") || `<span class="mm-unused">${esc(t("prov.no_models"))}</span>`}</div>
+    </div>
+    <div class="mm-acts">
+      <button class="icon-btn" type="button" data-prov="edit" data-id="${esc(p.id)}" title="${esc(t("prov.edit"))}" aria-label="${esc(t("prov.edit"))}">${svgIcon("pencil", 16)}</button>
+      <button class="icon-btn danger" type="button" data-prov="delete" data-id="${esc(p.id)}" title="${esc(t("prov.delete"))}" aria-label="${esc(t("prov.delete"))}">${svgIcon("trash", 16)}</button>
+    </div>
+  </div>`;
+}
+
+function provFormHtml() {
+  const e = PROV.edit;
+  const kinds = ["openai", "anthropic", "gemini"];
+  const found = PROV.models;
+  const chosen = new Set(e.models.map((m) => m.name));
+  const avail = (found || []).filter((m) => !chosen.has(m.name));
+  return `<form class="prov-form" data-prov-form>
+    ${e.isNew ? `<div class="prov-presets">${PROV_PRESETS.map((p) => `<button type="button" class="chip-btn ${e.preset === p.id ? "active" : ""}" data-prov="preset" data-preset="${p.id}">${esc(p.name)}</button>`).join("")}</div>` : ""}
+    <div class="grid-2">
+      <div class="field"><label for="prov-name">${esc(t("prov.name"))}</label>
+        <input id="prov-name" value="${esc(e.name)}" maxlength="60" autocomplete="off"></div>
+      <div class="field"><label for="prov-kind">${esc(t("prov.kind"))}</label>
+        <select id="prov-kind">${kinds.map((k) => `<option value="${k}" ${e.kind === k ? "selected" : ""}>${esc(t(`prov.kind_${k}`))}</option>`).join("")}</select></div>
+    </div>
+    <div class="field"><label for="prov-url">${esc(t("prov.url"))}</label>
+      <input id="prov-url" value="${esc(e.base_url)}" spellcheck="false" autocomplete="off" autocapitalize="off" inputmode="url"></div>
+    <div class="field"><label for="prov-key">${esc(t("prov.key"))}</label>
+      <div class="ic-row"><input id="prov-key" class="text-input" type="password" value="${esc(e.api_key || "")}" placeholder="${esc(e.has_key ? t("prov.key_keep") : e.kind === "openai" ? t("prov.key_optional") : "")}" autocomplete="off" spellcheck="false">
+        ${e.has_key ? `<button class="icon-btn danger" type="button" data-prov="clear-key" title="${esc(t("prov.key_clear"))}" aria-label="${esc(t("prov.key_clear"))}">${svgIcon("trash", 15)}</button>` : ""}</div>
+      <small>${esc(t("prov.key_help"))}</small></div>
+    <div class="field"><span class="field-label">${esc(t("prov.models"))}</span>
+      <div class="prov-models">${e.models.map((m, i) => `<div class="prov-model">
+          <code>${esc(m.name)}</code>
+          <label class="mini-check" title="${esc(t("model.tools_t"))}"><input type="checkbox" data-cap="tools" data-i="${i}" ${m.caps.includes("tools") ? "checked" : ""}> tools</label>
+          <label class="mini-check" title="${esc(t("prov.vision_t"))}"><input type="checkbox" data-cap="vision" data-i="${i}" ${m.caps.includes("vision") ? "checked" : ""}> ${esc(t("model.vision"))}</label>
+          <button class="icon-btn" type="button" data-prov="test" data-i="${i}" title="${esc(t("prov.test"))}" aria-label="${esc(t("prov.test"))}" ${PROV.busy ? "disabled" : ""}>${svgIcon("play", 14)}</button>
+          <button class="icon-btn danger" type="button" data-prov="rm-model" data-i="${i}" title="${esc(t("prov.rm_model"))}" aria-label="${esc(t("prov.rm_model"))}">${svgIcon("x", 14)}</button>
+        </div>`).join("") || `<p class="note">${esc(t("prov.no_models"))}</p>`}</div>
+      <div class="ic-row">
+        <input class="text-input" id="prov-add-model" list="prov-found" placeholder="${esc(t("prov.model_ph"))}" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="${esc(t("prov.model_ph"))}">
+        <datalist id="prov-found">${avail.slice(0, 400).map((m) => `<option value="${esc(m.name)}">${esc(m.label || "")}</option>`).join("")}</datalist>
+        <button class="icon-btn" type="button" data-prov="add-model" title="${esc(t("prov.add_model"))}" aria-label="${esc(t("prov.add_model"))}">${svgIcon("check", 16)}</button>
+        <button class="icon-btn" type="button" data-prov="fetch" title="${esc(t("prov.fetch"))}" aria-label="${esc(t("prov.fetch"))}" ${PROV.busy ? "disabled" : ""}>${svgIcon("regenerate", 16)}</button>
+      </div>
+      ${found ? `<small>${esc(t("prov.found", { n: found.length }))}</small>` : ""}
+    </div>
+    ${PROV.test ? `<div class="callout ${PROV.test.ok ? (PROV.test.tools === false ? "warn" : "ok") : "warn"}"><div>${esc(PROV.test.text)}</div></div>` : ""}
+    <label class="switch"><input type="checkbox" id="prov-enabled" ${e.enabled !== false ? "checked" : ""}><span class="track"></span>${esc(t("prov.enabled"))}</label>
+    <div class="prov-actions">
+      <button class="btn" type="button" data-prov="cancel">${esc(t("prov.cancel"))}</button>
+      <button class="btn btn-primary" type="submit" ${PROV.busy ? "disabled" : ""}>${esc(t("prov.save"))}</button>
+    </div>
+  </form>`;
+}
+
+function renderProvidersCard() {
+  const box = $("#providers-card");
+  if (!box) return;
+  if (!isAdmin()) {
+    box.hidden = true;
+    return;
+  }
+  if (PROV.list == null) {
+    box.innerHTML = `<div class="card-head"><div><h2>${esc(t("prov.title"))}</h2></div></div><p class="note">…</p>`;
+    loadProviders();
+    return;
+  }
+  box.innerHTML = `
+    <div class="card-head"><div><h2>${esc(t("prov.title"))}</h2><p>${esc(t("prov.sub"))}</p></div>
+      ${PROV.edit ? "" : `<button class="btn btn-sm" type="button" data-prov="new">${svgIcon("plug", 14)} ${esc(t("prov.add"))}</button>`}</div>
+    ${PROV.edit ? provFormHtml() : `<div class="mm-list">${PROV.list.map(provRowHtml).join("") || `<p class="empty">${esc(t("prov.none"))}</p>`}</div>`}
+    <small class="note">${esc(t("prov.privacy"))}</small>`;
+  box.onclick = onProvClick;
+  box.onsubmit = (e) => { e.preventDefault(); provSave(); };
+  box.onchange = (e) => {
+    const c = e.target.closest("[data-cap]");
+    if (c && PROV.edit) {
+      provSync();
+      const m = PROV.edit.models[+c.dataset.i];
+      const caps = new Set(m.caps);
+      c.checked ? caps.add(c.dataset.cap) : caps.delete(c.dataset.cap);
+      m.caps = [...caps];
+    } else if (e.target.id === "prov-kind" && PROV.edit) {
+      provSync();
+      const prevDefault = Object.values(PROV.defaults).includes(PROV.edit.base_url) || !PROV.edit.base_url;
+      if (prevDefault) PROV.edit.base_url = PROV.defaults[PROV.edit.kind] || "";
+      PROV.models = null;
+      renderProvidersCard();
+    }
+  };
+}
+
+// Lo escrito en el formulario → PROV.edit (antes de volver a dibujarlo).
+function provSync() {
+  const e = PROV.edit;
+  if (!e || !$("#prov-name")) return;
+  e.name = $("#prov-name").value.trim();
+  e.kind = $("#prov-kind").value;
+  e.base_url = $("#prov-url").value.trim();
+  e.api_key = $("#prov-key").value.trim();
+  e.enabled = $("#prov-enabled").checked;
+}
+
+function provBody(e) {
+  return { id: e.id, kind: e.kind, base_url: e.base_url, api_key: e.api_key || "" };
+}
+
+function provId(name, taken) {
+  let base = (name || "api").toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "api";
+  let id = base;
+  for (let i = 2; taken.has(id); i++) id = `${base}-${i}`;
+  return id;
+}
+
+async function provPut(list) {
+  const r = await api("PUT", "/api/llm/providers", { providers: list });
+  PROV.list = r.providers;
+  if (r.models) S.models = r.models;
+  if (typeof renderModelList === "function") renderModelList();
+}
+
+async function onProvClick(ev) {
+  const b = ev.target.closest("[data-prov]");
+  if (!b) return;
+  const act = b.dataset.prov;
+  if (act !== "new" && act !== "edit" && act !== "delete") provSync();
+  const e = PROV.edit;
+  if (act === "new") {
+    PROV.edit = { isNew: true, id: "", name: "", kind: "openai", base_url: PROV.defaults.openai || "", api_key: "", models: [], enabled: true };
+    PROV.models = null;
+    PROV.test = null;
+  } else if (act === "preset") {
+    const p = PROV_PRESETS.find((x) => x.id === b.dataset.preset);
+    Object.assign(e, { preset: p.id, name: p.name, kind: p.kind, base_url: p.base_url });
+    PROV.models = null;
+  } else if (act === "edit") {
+    const p = PROV.list.find((x) => x.id === b.dataset.id);
+    PROV.edit = { ...p, models: (p.models || []).map((m) => ({ ...m, caps: [...m.caps] })), api_key: "" };
+    PROV.models = null;
+    PROV.test = null;
+  } else if (act === "cancel") {
+    PROV.edit = null;
+  } else if (act === "delete") {
+    const p = PROV.list.find((x) => x.id === b.dataset.id);
+    const used = (S.data.assistants || []).filter((a) => String(a.base_model || "").startsWith(`@${p.id}/`)).map(displayName);
+    const text = used.length ? t("prov.delete_used", { name: p.name, list: used.join(", ") }) : t("prov.delete_text", { name: p.name });
+    if (!(await confirmDialog(t("prov.delete"), text, t("prov.delete")))) return;
+    try {
+      await provPut(PROV.list.filter((x) => x.id !== p.id).map((x) => ({ ...x, api_key: "" })));
+    } catch (err) {
+      toast(err.message, "error", 6000);
+    }
+  } else if (act === "clear-key") {
+    e.clear_key = true;
+    e.has_key = false;
+    e.api_key = "";
+  } else if (act === "rm-model") {
+    e.models.splice(+b.dataset.i, 1);
+  } else if (act === "add-model") {
+    const name = $("#prov-add-model").value.trim();
+    if (!name || /\s/.test(name)) return;
+    if (!e.models.some((m) => m.name === name)) {
+      const info = (PROV.models || []).find((m) => m.name === name) || {};
+      const caps = [info.tools === false ? null : "tools", info.vision === false ? null : (info.vision || e.kind !== "openai" ? "vision" : null)].filter(Boolean);
+      e.models.push({ name, caps });
+    }
+  } else if (act === "fetch") {
+    PROV.busy = true;
+    renderProvidersCard();
+    try {
+      PROV.models = (await api("POST", "/api/llm/models", provBody(e))).models;
+    } catch (err) {
+      PROV.models = null;
+      toast(err.message, "error", 7000);
+    }
+    PROV.busy = false;
+  } else if (act === "test") {
+    const m = e.models[+b.dataset.i];
+    PROV.busy = true;
+    PROV.test = { ok: true, text: t("prov.testing", { model: m.name }) };
+    renderProvidersCard();
+    try {
+      const r = await api("POST", "/api/llm/test", { ...provBody(e), model: m.name });
+      PROV.test = { ok: true, tools: r.tools, text: t(r.tools === false ? "prov.test_ok_notools" : "prov.test_ok", { model: m.name, ms: r.ms, reply: r.reply }) };
+      if (r.tools === false && m.caps.includes("tools")) m.caps = m.caps.filter((c) => c !== "tools");
+    } catch (err) {
+      PROV.test = { ok: false, text: t("prov.test_fail", { model: m.name, error: err.message }) };
+    }
+    PROV.busy = false;
+  }
+  renderProvidersCard();
+}
+
+async function provSave() {
+  provSync();
+  const e = PROV.edit;
+  if (!e) return;
+  if (!e.base_url) return toast(t("prov.need_url"), "warn");
+  if ((e.kind === "anthropic" || e.kind === "gemini") && !e.api_key && !e.has_key) return toast(t("prov.need_key"), "warn");
+  const others = PROV.list.filter((x) => x.id !== e.id);
+  const item = { ...e, id: e.isNew ? provId(e.name || e.kind, new Set(others.map((x) => x.id))) : e.id };
+  delete item.isNew;
+  delete item.preset;
+  delete item.has_key;
+  PROV.busy = true;
+  try {
+    await provPut([...others.map((x) => ({ ...x, api_key: "" })), item]);
+    PROV.edit = null;
+    PROV.test = null;
+    toast(t("prov.saved"));
+  } catch (err) {
+    toast(err.message, "error", 7000);
+  }
+  PROV.busy = false;
+  renderProvidersCard();
+}
