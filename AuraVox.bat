@@ -15,5 +15,8 @@ if exist "%HERE%python\python.exe" (
     set "PY=python"
 )
 
+rem Start Ollama and, if its plugin is enabled, ComfyUI (see app\scripts\start_services.py).
+"%PY%" "%HERE%app\scripts\start_services.py"
+
 "%PY%" "%HERE%app\webui\config_ui.py" %*
 pause

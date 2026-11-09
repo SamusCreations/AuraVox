@@ -10,10 +10,10 @@ cae.
 Qwen3-TTS habla 10 idiomas (QWEN_LANGUAGES). En los otros 21 del pipeline
 la voz clonada usa su voz de respaldo de Supertonic (`fallback_voice`).
 
-Con `compile` (por defecto) el modelo tarda 1,5-4 minutos en prepararse
-(ver qwen_worker.py) pero después habla ~3 veces más rápido. Mientras se
-prepara (warm_up_async, que la app lanza al arrancar si algún asistente usa
-una voz clonada), las respuestas salen con la voz de respaldo en vez de
+Con `compile` (por defecto) se usan CUDA graphs (ver qwen_graph.py y
+qwen_worker.py): unos segundos de preparación y ~3,6× tiempo real. Mientras
+se prepara (warm_up_async, que la app lanza al arrancar si algún asistente
+usa una voz clonada), las respuestas salen con la voz de respaldo en vez de
 quedarse esperando; las muestras de la interfaz sí esperan.
 
     voice = CustomVoice("custom:mi_voz")
@@ -157,7 +157,8 @@ class QwenTTSEngine:
     # ── Uso ────────────────────────────────────────────────────────────
     @staticmethod
     def _voice_payload(voice: dict) -> dict:
-        return {"id": voice["id"], "path": voice["path"], "ref_text": voice["ref_text"], "stamp": voice["stamp"]}
+        return {"id": voice["id"], "path": voice["path"], "full_path": voice.get("full_path") or "",
+                "ref_text": voice["ref_text"], "stamp": voice["stamp"]}
 
     def load(self, warmup_voice: dict = None) -> dict:
         """Carga (y, con `compile`, compila y calienta) el modelo. Puede
@@ -167,7 +168,7 @@ class QwenTTSEngine:
                                                              [v["id"] for v in voice_settings.custom_voices()])), None)
         t0 = time.time()
         if compile_model:
-            _say("preparing model (compilation: ~4 min on first run, ~1.5 min afterwards)…")
+            _say("preparing model (CUDA graphs)…")
         reply = self._call({"op": "load", "model_dir": self.model_dir(), "compile": compile_model,
                             "warmup_voice": self._voice_payload(warmup_voice) if warmup_voice else None}, timeout=900)
         if reply.get("device"):
@@ -175,7 +176,7 @@ class QwenTTSEngine:
             self.languages = reply.get("languages") or []
         self.ready = True
         _say(f"model {os.path.basename(self.model_dir())} ready in {time.time() - t0:.1f}s ({self.device}, "
-             f"{'compiled' if reply.get('compiled') else 'uncompiled'})")
+             f"{reply.get('accel') or 'none'})")
         return reply
 
     def warm_up_async(self) -> bool:
@@ -213,9 +214,9 @@ class QwenTTSEngine:
             "language": QWEN_LANGUAGES.get(lang, "Auto"), "out": out_path,
             "compile": voice_settings.load()["qwen_tts"]["compile"], "voice": self._voice_payload(voice),
         }, timeout=900)
-        rtf = reply["seconds"] / max(reply["audio_seconds"], 0.01)
+        speed = reply["audio_seconds"] / max(reply["seconds"], 0.01)
         _say(f"{voice['id']} [{lang}] on {self.device}: {reply['seconds']:.2f}s for {reply['audio_seconds']:.1f}s of "
-             f"audio (RTF {rtf:.2f})")
+             f"audio ({speed:.1f}x real time, {reply.get('accel') or 'none'})")
         return reply
 
     def release(self) -> bool:

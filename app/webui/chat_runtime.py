@@ -249,6 +249,19 @@ def transcribe_array(audio, languages, hint: str = None, source: str = "stt") ->
     return text.strip(), lang, confident
 
 
+def transcribe_words(audio, language: str) -> list:
+    """Whisper con su VAD y marcas de tiempo por palabra: [{start, end, text,
+    words: [{start, end, word, probability}]}] (audio a 16 kHz)."""
+    with _stt_lock:
+        stt = _ensure_stt()
+        stt._load()
+        segments, _info = stt._model.transcribe(audio, language=language, vad_filter=True, word_timestamps=True,
+                                                condition_on_previous_text=False)
+        return [{"start": s.start, "end": s.end, "text": s.text,
+                 "words": [{"start": w.start, "end": w.end, "word": w.word, "probability": w.probability}
+                           for w in (s.words or [])]} for s in segments]
+
+
 def transcribe(data: bytes, languages, hint: str = None) -> tuple:
     """Audio grabado en el navegador (webm/ogg/wav, lo decodifica PyAV) →
     (texto, idioma). Ver transcribe_array."""

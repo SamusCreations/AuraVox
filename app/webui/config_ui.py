@@ -71,6 +71,7 @@ from app.webui import backup
 from app.webui import dashboard
 from app.webui.voice_listener import VoiceListener
 from app.core import voice_settings
+from app.voice import voice_reference
 from app.core import attachments
 from app.core.assistant_common import (
     VALID_VOICE_CODES,
@@ -103,6 +104,7 @@ MAX_AUDIO = 25_000_000
 # Adjuntos del chat escrito (ver _group_history y app/core/attachments.py).
 MAX_CHAT_BODY = 40_000_000     # /api/chat: el historial puede traer imágenes
 MAX_AUDIO_FILE = 150_000_000   # un audio adjunto para pasar a texto
+MAX_VOICE_AUDIO = 300_000_000  # audio largo para clonar una voz
 MAX_IMAGES = 4                 # por mensaje
 # Mensajes con imágenes que el modelo sigue viendo. Con 2, al describir una
 # imagen nueva mezclaba detalles de la anterior (que seguía en el contexto).
@@ -114,8 +116,6 @@ B64_RE = re.compile(r"^[A-Za-z0-9+/=\s]+$")
 MODEL_NAME_RE = re.compile(r"^[\w.\-/:]{1,200}$")
 PREVIEW_RE = re.compile(r"^/previews/([a-z]{2})/([FM][1-5]|custom-[a-z0-9][a-z0-9_-]{0,39})\.wav$")
 VOICE_AUDIO_RE = re.compile(r"^/voices/([a-z0-9][a-z0-9_-]{0,39})\.wav$")
-# Audio de referencia de una voz clonada: lo que Qwen3-TTS aprovecha bien.
-VOICE_REF_SECONDS = (3.0, 20.0)
 
 _LANGUAGES = []  # se calcula una vez al arrancar (importar faster_whisper tarda un poco)
 
@@ -1336,7 +1336,7 @@ class Handler(BaseHTTPRequestHandler):
             # sin leer la corta con un RST y el navegador pierde la respuesta
             # (pasaba por HTTPS, desde otro dispositivo).
             try:
-                left = min(int(self.headers.get("Content-Length") or 0), MAX_AUDIO_FILE)
+                left = min(int(self.headers.get("Content-Length") or 0), MAX_VOICE_AUDIO)
                 while left > 0:
                     chunk = self.rfile.read(min(left, 1 << 20))
                     if not chunk:
@@ -2027,15 +2027,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _add_voice(self) -> None:
         """Voz clonada nueva a partir de un audio (lo que el navegador sube:
-        un archivo o una grabación). Se guarda en WAV mono 24 kHz, recortado
-        a 20 s, y Whisper transcribe lo que se dice en él (el texto de
-        referencia que necesita Qwen3-TTS para imitarla bien)."""
+        un archivo o una grabación) de hasta 10 minutos: se elige lo mejor
+        de él como referencia y su texto, ver voice_reference.py."""
         import io
 
         import soundfile as sf
         from faster_whisper import decode_audio
 
-        data = self._raw_body(MAX_AUDIO)
+        data = self._raw_body(MAX_VOICE_AUDIO)
         if not data:
             raise store.ConfigError(tr("audio_empty"))
         query = parse_qs(urlsplit(self.path).query)
@@ -2047,23 +2046,32 @@ class Handler(BaseHTTPRequestHandler):
             audio = decode_audio(io.BytesIO(data), sampling_rate=24000)
         except Exception as e:  # noqa: BLE001
             raise store.ConfigError(tr("voice_audio_bad", error=e))
-        lo, hi = VOICE_REF_SECONDS
-        if len(audio) / 24000 < lo:
+        if len(audio) / 24000 < voice_reference.MIN_SECONDS:
             raise store.ConfigError(tr("voice_audio_short"))
-        audio = audio[: int(hi * 24000)]
-        vid = voice_settings.new_voice_id(name)
-        os.makedirs(paths.CUSTOM_VOICES_DIR, exist_ok=True)
-        sf.write(os.path.join(paths.CUSTOM_VOICES_DIR, f"{vid}.wav"), audio, 24000, subtype="PCM_16")
-        ref_text, _lang = "", lang
+        audio = audio[: int(voice_reference.MAX_SOURCE_SECONDS * 24000)]
+        pcm16k = decode_audio(io.BytesIO(data), sampling_rate=16000)[: int(voice_reference.MAX_SOURCE_SECONDS * 16000)]
+        t0 = time.time()
         try:
-            pcm16k = decode_audio(io.BytesIO(data), sampling_rate=16000)[: int(hi * 16000)]
-            ref_text, _lang, _conf = chat_runtime.transcribe_array(pcm16k, [lang], lang, source="voice")
+            segments = chat_runtime.transcribe_words(pcm16k, lang)
         except Exception as e:  # noqa: BLE001 — sin texto la voz igual sirve (solo el timbre)
             server_log.log("voice", f"could not transcribe reference audio ({e})", "warn")
-        voice_settings.add_voice({"id": vid, "name": name, "audio": f"custom_voices/{vid}.wav", "ref_text": ref_text,
-                                  "language": lang, "fallback_voice": fallback})
-        server_log.log("voice", f"new cloned voice «{name}» ({vid}, {len(audio) / 24000:.1f}s): «{ref_text[:80]}»")
-        self._send_json({"id": vid, "state": self._state()})
+            segments = []
+        result = voice_reference.build(audio, pcm16k, segments)
+        vid = voice_settings.new_voice_id(name)
+        os.makedirs(paths.CUSTOM_VOICES_DIR, exist_ok=True)
+        sf.write(os.path.join(paths.CUSTOM_VOICES_DIR, f"{vid}.wav"), result["ref"], 24000, subtype="PCM_16")
+        full_audio = ""
+        if result["full"] is not None:
+            full_audio = f"custom_voices/{vid}.full.wav"
+            sf.write(os.path.join(paths.CONFIG_DIR, full_audio), result["full"], 24000, subtype="PCM_16")
+        voice_settings.add_voice({"id": vid, "name": name, "audio": f"custom_voices/{vid}.wav", "full_audio": full_audio,
+                                  "ref_text": result["ref_text"], "language": lang, "fallback_voice": fallback})
+        server_log.log("voice", f"new cloned voice «{name}» ({vid}): {result['seconds']:.0f}s analysed in "
+                                f"{time.time() - t0:.1f}s, {result['phrases']} phrases, {result['used']:.1f}s reference, "
+                                f"{0 if result['full'] is None else len(result['full']) / 24000:.0f}s for timbre: "
+                                f"«{result['ref_text'][:80]}»")
+        self._send_json({"id": vid, "state": self._state(),
+                         "reference": {k: round(result[k], 1) for k in ("seconds", "used")} | {"phrases": result["phrases"]}})
 
     def _edit_voice(self, method: str, vid: str, data: dict) -> None:
         if not voice_settings.get_voice(vid):

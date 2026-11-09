@@ -12,7 +12,7 @@
 
 - **Thinking (LLM):** [Ollama](https://ollama.com) running locally (`gemma4:E4B` by default; compatible with any Ollama model, including `tools` and `vision` models).
 - **Hearing (STT):** `faster-whisper` (`small` or `large-v3-turbo`, with Silero VAD), running on GPU (`CUDA float16`) or CPU (`int8`).
-- **Speaking (TTS):** `Supertonic-3` (10 built-in voices `F1–F5`, `M1–M5`, 31 languages, ONNX runtime) + **zero-shot cloned voices** via `Qwen3-TTS` (`0.6B` or `1.7B`, from 3–20 s of reference audio).
+- **Speaking (TTS):** `Supertonic-3` (10 built-in voices `F1–F5`, `M1–M5`, 31 languages, ONNX runtime) + **zero-shot cloned voices** via `Qwen3-TTS` (`0.6B` or `1.7B`, from 3 s to 10 min of reference audio, accelerated with CUDA graphs).
 - **Image Generation, Image Editing & Video Synthesis:** Local **ComfyUI** integration (`plugins/comfyui`), featuring automatic VRAM arbitration between Ollama and ComfyUI and a built-in multimedia library.
 - **Accessible from Desktop Browser & Mobile Devices:** Includes a local LAN HTTPS server (`:8766`) with a self-signed certificate, access token, and scannable QR code.
 
@@ -22,7 +22,7 @@ It uses **no frontend frameworks** (vanilla HTML + CSS + ES2022 JS across `app.j
 
 ## Startup & Plug-and-Play Bootstrap
 
-- **`AuraVox.bat`** → detects `python\python.exe` (or falls back to system `python`), launches `-m app.webui.config_ui`, and opens `http://127.0.0.1:8765`. On exit, it also shuts down the `Qwen3-TTS` worker process if active.
+- **`AuraVox.bat`** → detects `python\python.exe` (or falls back to system `python`), runs `app\scripts\start_services.py` (starts Ollama, and ComfyUI if its plugin is on), launches `-m app.webui.config_ui`, and opens `http://127.0.0.1:8765`. On exit, it also shuts down the `Qwen3-TTS` worker process if active.
 - **Automatic Plug & Play Initialization (`app/paths.py` → `ensure_default_configs()`):** On import, if `config/assistants.yaml`, `config/voice_settings.yaml`, `config/spotify_config.yaml`, or `config/wake_words.txt` do not exist (e.g., on a fresh `git clone`), they are automatically created by copying their tracked `*.example.*` templates. All runtime subdirectories (`config/chats/files`, `config/memory`, `config/lists`, `config/routines`, `config/knowledge`, `config/custom_voices`, `config/comfyui/workflows`, `config/certs`, `audio`, `backups`, `cache`, `logs`) are also created automatically.
 - **`extras\`** contains optional standalone CLI `.bat` scripts (`run_voice_loop.bat`, `run_assistant.bat`, `switch_model.bat`, `spotify_setup.bat`, `free_ollama_memory.bat`).
 
@@ -57,8 +57,10 @@ AuraVox\
 │   │
 │   ├── voice\                   Speech recognition, synthesis, and PC activation
 │   │   ├── supersonictts.py     Supertonic-3 TTS (ONNX, CUDA/CPU) + number-to-words in 31 languages + pre-generated announcements
-│   │   ├── qwen_tts.py          Client + subprocess manager (_qwen_tts_worker.py) for Qwen3-TTS voice cloning
-│   │   ├── _qwen_tts_worker.py  Local HTTP worker keeping Qwen3-TTS loaded in VRAM
+│   │   ├── qwen_tts.py          Client + subprocess manager (qwen_worker.py) for Qwen3-TTS voice cloning
+│   │   ├── qwen_worker.py       Separate process (Python with torch) keeping Qwen3-TTS loaded; caches each voice prompt
+│   │   ├── qwen_graph.py        CUDA-graph frame loop for Qwen3-TTS (replaces talker.generate in the worker)
+│   │   ├── voice_reference.py   Long recording → best ~20 s reference + all usable speech for the speaker embedding
 │   │   ├── stt_whisper.py       faster-whisper STT with Silero VAD and constrained multilingual detection
 │   │   ├── mic_stream.py        16 kHz mono sounddevice capture and RMS silence detector
 │   │   ├── wake_word_utils.py   Wake-word detection on transcripts (phonetic aliases, fuzzy matching, exclusions)
@@ -71,6 +73,7 @@ AuraVox\
 │   │   ├── knowledge.py         Per-assistant RAG document index (nomic-embed-text embeddings or BM25; config\knowledge\<assistant>\)
 │   │   └── routines.py          Scheduled and on-demand routines (date + weather + reminders + lists + news)
 │   │
+│   ├── scripts\                 Standalone scripts; start_services.py is run by AuraVox.bat (Ollama + ComfyUI)
 │   ├── tools\                   Built-in tool implementations
 │   │   ├── websearch.py         Web search (DuckDuckGo + Wikipedia + webpage reader) and news headlines (Google News RSS)
 │   │   ├── weather.py           Current weather and forecast (Open-Meteo, no API key required)
@@ -192,5 +195,7 @@ Any content generated (ComfyUI images/videos, files converted via `convert_file`
 - **Mobile Layout (`style.css`):** Every Grid/Flex container inside `#/shared`, `#/media`, `#/files`, and chat views must keep `min-width: 0` and collapse `.grid-2` / `.grid-3` to a single column at `<= 720px` to prevent horizontal overflow on phones. Button rows must `flex-wrap: wrap` (or use `.ic-row` for field + icon buttons), and long paths/URLs in notes break with `overflow-wrap: anywhere`. Check at 360/390/430 px that nothing sticks out of the viewport or gets clipped inside cards (`.cfg-section > .card` has `overflow-x: hidden`, so `document.scrollWidth` alone doesn't catch clipping).
 - **Remote LLM providers (`app/core/llm_remote.py`)**: optional OpenAI-compatible / Anthropic / Gemini APIs. `base_model` = `@<provider_id>/<model>` for a remote model. **All LLM HTTP calls must use `llm_remote.post(url, json=body, …)` instead of `requests.post`** (Ollama `/api/chat` body in, Ollama-shaped response out; streaming via NDJSON `iter_lines`). Use `llm_remote.is_remote(model)` before anything Ollama-specific (pull, `/api/show`, VRAM measure, unload). Config: `config/llm_providers.json`; keys in `config/secrets.json` via `app/core/secrets_store.py` (DPAPI on Windows; `get/set/has`). `list_models()` returns them under `remote` (with `capabilities`, `provider`, `remote: true`). Routes: `GET/PUT /api/llm/providers`, `POST /api/llm/models`, `POST /api/llm/test` (admin). UI: `#providers-card` (`renderProvidersCard`, `PROV` in `features.js`) and the *Via API* group in the assistant model picker (`renderModelList` in `app.js`).
 - **Hugging Face (`app/core/hf_hub.py`)**: `search`, `repo_files`, `gguf_info` (quantizations grouped from `.gguf` names, `mmproj` = vision), `download` (token from `secrets_store` key `hf_token`, `.part` + sha256), `Job` (background download with progress). Assistant LLM: `GET /api/hf/search`, `GET /api/hf/repo`, `POST /api/hf/pull` (public → `start_pull("hf.co/<repo>:<quant>")`; private/gated → `_hf_import_worker`: download to `cache/hf/`, `/api/blobs` + `/api/create`), `GET/PUT /api/hf/token` (admin). UI: `#hf-details` in the models card (`HFS`, `mountHfBox`). ComfyUI: plugin actions `hf_files`, `hf_download`, `hf_status`, `hf_cancel` (`_hf_action` in `plugins/comfyui/plugin.py`, `HF_FOLDERS`, `_hf_guess`); UI `cuHf` / `CUHF` in `features.js`.
+- **Cloned voices (`app/voice/`)**: `voice_reference.build` turns an uploaded recording (up to 10 min, `/api/voices`) into a ~20 s reference + `ref_text` and, optionally, `full_audio` (`<id>.full.wav`, averaged speaker embedding); phrases come from `chat_runtime.transcribe_words`. `qwen_worker.py` runs in the Qwen Python and caches the prompt per voice/model in `cache/qwen-tts/prompts/` (bump `_PROMPT_VERSION` when its computation changes). `qwen_graph.install` replaces `talker.generate` with captured CUDA graphs; the worker falls back to `torch.compile`, then plain. Other sub-sampling values or batches use the original `generate`.
+- **Startup (`AuraVox.bat` → `app/scripts/start_services.py`)**: starts Ollama if it doesn't answer (waits up to 30 s), and ComfyUI if its plugin is enabled, an installation is configured or detected (`cu_locate`) and its URL is local; ComfyUI is not waited for. Never blocks AuraVox from starting. `AURAVOX_NO_AUTOSTART=1` skips it; `--dry-run` only reports.
 - **Plugin hook `forget_files(ids, owner)` (optional in `plugin.py`):** called by `plugins.forget_files` when library files are deleted, so a plugin can drop what it stored about them (ComfyUI uses it for `jobs.json`).
 - **ComfyUI installation (`plugins/comfyui/cu_locate.py`):** `find_all()` (Desktop via `%APPDATA%\ComfyUI\config.json` `basePath` + `%LOCALAPPDATA%\Programs\…\ComfyUI.exe`, port 8000; portable folders with `main.py` + `models\`, port from the launcher `.bat`, default 8188), `info(path)` validates a hand-picked folder, `browse(path)` lists folders for the in-app picker, `disk_workflows`/`disk_models` read from disk, `start()` launches it. `plugin.py` caches detection (`detect`, `install`), uses the install URL when the `url` setting is empty (`auto_url`), stores a manual choice in `config/comfyui/config.json` → `install.path`, and exposes admin actions `locate`, `browse`, `install`, `start` under `/api/plugin/comfyui/`.

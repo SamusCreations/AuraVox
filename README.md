@@ -160,6 +160,23 @@ AuraVox provides a dual-engine TTS architecture:
    - **Precomputed Voice Prompt Caching**: The reference audio and its Whisper transcript are encoded once into a `.prompt.pt` tensor file (`user_data/voices/<id>.prompt.pt`). Subsequent syntheses load the conditioning tensors directly, cutting synthesis latency by ~50%.
    - **Graceful Fallback & Idle VRAM Unloading**: While `Qwen3-TTS` is warming up on first use, assistants immediately speak using their configured `Supertonic-3` fallback voice (`M1`–`F5`) so the user never waits in silence. If no assistant is configured to use a cloned voice, the worker process is terminated automatically to free ~1.5–3.5 GB of VRAM.
 
+#### Cloned voices: long references and speed
+
+- **Long audio** (`app/voice/voice_reference.py`): `POST /api/voices` accepts up to 10 minutes (300 MB; the browser recorder stops at 3 min). Whisper (VAD + word timestamps) splits it into phrases; phrases with low transcription confidence, under 12 dB of signal-to-noise, clipped or at an unnatural speed are dropped. The best ones, up to about 20 s, become `custom_voices/<id>.wav` + `ref_text` (whole phrases in order, matched to -20 dBFS), and everything that passed (up to 5 min) becomes `custom_voices/<id>.full.wav`, from which the worker averages the speaker embedding in 10 s windows. The in-context prompt stays near 20 s because it is reprocessed for every sentence and community guidance finds little gain past 15 s, so a longer recording improves which speech is used and the timbre estimate, not the prompt length. A recording with no usable phrase falls back to its first 20 s.
+- **Prompt cache**: the reference codes + speaker embedding are computed once per voice and model and stored in `cache/qwen-tts/prompts/`. The reference gets 0.5 s of trailing silence so its last phoneme doesn't bleed into the generated audio.
+- **CUDA graphs** (`app/voice/qwen_graph.py`, on by default with `compile: true`): a frame costs one talker pass + 15 code-predictor passes, about 500 small kernels launched from Python. The frame loop is captured with `torch.cuda.CUDAGraph` (static KV cache, explicit masks and positions), falling back to `torch.compile` if capture fails.
+
+Measured on an RTX 4080 SUPER (0.6B, bf16, SDPA, Spanish, 20 s reference):
+
+| Mode | Speed (audio / wall clock) | Sentence of ~7 s | Ready at startup | Peak VRAM |
+|---|---|---|---|---|
+| No acceleration | 0.65x | ~10.6 s | ~2 s | 2.55 GB |
+| `torch.compile` (previous default) | 1.91x | ~3.8 s | 70-175 s | 2.55 GB |
+| CUDA graphs | 3.6-4.1x | ~1.9 s | ~11 s (worker start included) | 2.74 GB |
+| CUDA graphs, 1.7B model | 3.2x | - | - | 4.63 GB |
+
+Speaker similarity to the reference (cosine of the model's speaker embedding, 15 samples): 0.9882 with the original loop and 0.9882 with graphs. `flash-attn` is not used: it isn't installed in the ComfyUI Python, and graphs already remove the Python overhead it would not address.
+
 ### 2.4 Local Image & Video Generation (`ComfyUI` + Dynamic VRAM Swapping)
 
 Implemented in `plugins/comfyui/` (`plugin.py`, `cu_workflows.py`, `cu_jobs.py`):

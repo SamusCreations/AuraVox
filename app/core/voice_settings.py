@@ -46,11 +46,13 @@ _HEADER = """\
 #   stt_model       Whisper para entender: small (ligero) | large-v3-turbo (pesado)
 #   qwen_tts        Voces clonadas con Qwen3-TTS:
 #     model         0.6B (menos VRAM) | 1.7B (mejor parecido)
-#     compile       true = ~3 veces más rápido, pero tarda 1,5-4 min en prepararse al arrancar
+#     compile       true = acelerado con CUDA graphs (~5 veces más rápido que sin acelerar)
 #     python        Python con torch para correrlo ("" = el de ComfyUI si está)
 #   custom_voices   Voces clonadas: audio de referencia (en custom_voices/), lo
 #                   que se dice en él (ref_text), su idioma y la voz de
 #                   Supertonic que se usa en los idiomas que Qwen3-TTS no habla.
+#                   full_audio (opcional): toda el habla útil de un audio largo,
+#                   para promediar el timbre.
 """
 
 
@@ -73,8 +75,10 @@ def _clean_voice(raw: dict) -> dict:
         return None
     audio = str(raw.get("audio") or f"custom_voices/{vid}.wav").replace("\\", "/")
     fallback = str(raw.get("fallback_voice") or "M5").strip().upper()
+    full = str(raw.get("full_audio") or "").replace("\\", "/")
     return {
         "id": vid,
+        "full_audio": full,
         "name": str(raw.get("name") or vid).strip()[:40],
         "audio": audio,
         "ref_text": " ".join(str(raw.get("ref_text") or "").split())[:1000],
@@ -111,7 +115,8 @@ def save(data: dict) -> None:
         "qwen_tts": {"model": data["qwen_tts"]["model"], "python": data["qwen_tts"].get("python", ""),
                      "compile": bool(data["qwen_tts"].get("compile", True))},
         "custom_voices": [
-            {k: v[k] for k in ("id", "name", "audio", "ref_text", "language", "fallback_voice")}
+            {k: v[k] for k in ("id", "name", "audio", "full_audio", "ref_text", "language", "fallback_voice")
+             if k != "full_audio" or v[k]}
             for v in data["custom_voices"]
         ],
     }
@@ -168,8 +173,10 @@ def get_voice(code_or_id: str):
                 mtime = os.path.getmtime(path)
             except OSError:
                 return None
-            stamp = hashlib.sha1(f"{mtime}|{v['ref_text']}".encode("utf-8")).hexdigest()[:10]
-            return {**v, "code": CUSTOM_PREFIX + vid, "path": path, "stamp": stamp}
+            full_path = os.path.join(paths.CONFIG_DIR, v["full_audio"]) if v.get("full_audio") else ""
+            full_mtime = os.path.getmtime(full_path) if full_path and os.path.isfile(full_path) else 0
+            stamp = hashlib.sha1(f"{mtime}|{full_mtime}|{v['ref_text']}".encode("utf-8")).hexdigest()[:10]
+            return {**v, "code": CUSTOM_PREFIX + vid, "path": path, "full_path": full_path, "stamp": stamp}
     return None
 
 
@@ -210,10 +217,12 @@ def delete_voice(vid: str) -> None:
             raise KeyError(vid)
         data["custom_voices"] = [v for v in data["custom_voices"] if v["id"] != vid]
         save(data)
-        try:
-            os.remove(os.path.join(paths.CONFIG_DIR, voice["audio"]))
-        except OSError:
-            pass
+        for rel in (voice["audio"], voice.get("full_audio")):
+            try:
+                if rel:
+                    os.remove(os.path.join(paths.CONFIG_DIR, rel))
+            except OSError:
+                pass
 
 
 def new_voice_id(name: str) -> str:

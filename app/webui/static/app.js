@@ -2355,14 +2355,15 @@ async function uploadVoice(blob) {
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     S.data = { ...S.data, voice_settings: data.state.voice_settings };
     renderVoicesCard();
-    toast(t("voices.created", { name }));
+    toast(data.reference?.phrases ? t("voices.created_long", { name, ...data.reference }) : t("voices.created", { name }), "ok", 6000);
   } catch (e) {
     status.textContent = "";
     toast(e.message, "error", 7000);
   }
 }
 
-// Grabar la voz de referencia con el micrófono del navegador (hasta 20 s).
+// Grabar la voz de referencia con el micrófono del navegador (hasta 3 min;
+// se elige lo mejor de la grabación, ver voice_reference.py).
 async function toggleVoiceRecording() {
   const btn = $("#cv-record");
   if (VOICE_REC.rec) {
@@ -2392,7 +2393,7 @@ async function toggleVoiceRecording() {
   VOICE_REC.timer = setInterval(() => {
     const secs = Math.floor((Date.now() - VOICE_REC.started) / 1000);
     btn.innerHTML = `${ICON.stop} ${esc(t("voices.recording", { s: secs }))}`;
-    if (secs >= 20) rec.stop();
+    if (secs >= 180) rec.stop();
   }, 250);
 }
 
