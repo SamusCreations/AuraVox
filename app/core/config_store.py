@@ -44,8 +44,15 @@ KNOWN_FIELDS = {
     "label", "base_model", "voice", "speed", "language", "languages", "temperature",
     "top_k", "top_p", "max_history", "max_tool_rounds", "search_announcement",
     "fallback_message", "personality", "wake_word", "push_to_talk_key", "color", "think_pause",
-    "owner", "shared",
+    "owner", "shared", "expressiveness",
 }
+EXPRESSIVENESS_LEVELS = ("none", "some", "lots")
+DEFAULT_EXPRESSIVENESS = "lots"
+
+
+def _expressiveness(value) -> str:
+    value = str(value or "").strip().lower()
+    return value if value in EXPRESSIVENESS_LEVELS else DEFAULT_EXPRESSIVENESS
 # De quién es cada asistente (perfil que lo creó, ver webui/profiles.py) y si
 # lo ven los demás perfiles. Sin `owner` (los de antes de los perfiles o
 # escritos a mano) es de los administradores; sin `shared`, compartido.
@@ -130,6 +137,7 @@ def assistant_view(name: str, section) -> dict:
         "wake_word": parse_bool(s.get("wake_word"), True),
         "push_to_talk_key": normalize_key(s.get("push_to_talk_key")),
         "color": _color(s.get("color")),
+        "expressiveness": _expressiveness(s.get("expressiveness")),
         "owner": _owner(s.get("owner")),
         "shared": parse_bool(s.get("shared"), True),
     }
@@ -193,6 +201,7 @@ def validate_assistant(data: dict, taken_names: set, languages: list, taken_keys
     elif re.search(r"\s", base_model) or len(base_model) > MAX_LEN["base_model"]:
         errors["base_model"] = tr("model_invalid")
     out["base_model"] = base_model
+    out["expressiveness"] = _expressiveness(data.get("expressiveness"))
 
     voice = normalize_voice(_clean_line(data.get("voice")))
     if not is_valid_voice(voice):
@@ -346,6 +355,7 @@ def _emit_assistant(a: dict) -> list:
     if a.get("owner"):
         lines.append(f"  owner: {_q(a['owner'])}")
     lines.append(f"  shared: {'true' if a.get('shared', True) else 'false'}")
+    lines.append(f"  expressiveness: {_expressiveness(a.get('expressiveness'))}")
     lines += [
         f"  voice: {a['voice']}",
         f"  speed: {_num(a['speed'])}",

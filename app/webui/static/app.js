@@ -511,6 +511,7 @@ function newDraft() {
     max_tool_rounds: L.max_tool_rounds.default,
     think_pause: L.think_pause.default,
     search_announcement: t("new.search"),
+    expressiveness: "lots",
     fallback_message: t("new.fallback"),
     personality: personalityTemplate(""),
     wake_word: true,
@@ -1052,6 +1053,10 @@ function behaviorSection() {
       ${behaviorField({ field: "max_tool_rounds", min: L.max_tool_rounds.min, max: L.max_tool_rounds.max, step: 1, int: true })}
       ${behaviorField({ field: "think_pause", min: L.think_pause.min, max: L.think_pause.max, step: 0.25 })}
     </div>
+    <div class="field" data-wrap="expressiveness"><label for="f-expressiveness">${esc(t("beh.expressiveness"))}</label>
+      <select id="f-expressiveness" data-field="expressiveness">
+        ${["none", "some", "lots"].map((v) => `<option value="${v}" ${(d.expressiveness || "lots") === v ? "selected" : ""}>${esc(t(`beh.expr_${v}`))}</option>`).join("")}
+      </select><small>${esc(t("beh.expressiveness_help"))}</small></div>
     <div class="grid-2">
       ${textField({ field: "search_announcement", label: esc(t("beh.search")), value: d.search_announcement, placeholder: T.search_announcement, attrs: 'maxlength="300"' })}
       ${textField({ field: "fallback_message", label: esc(t("beh.fallback")), value: d.fallback_message, placeholder: T.fallback_message, attrs: 'maxlength="300"' })}
@@ -3179,7 +3184,9 @@ function paintLive(msg) {
       const caps = log.querySelectorAll(".cap.assistant");
       const cap = caps[caps.length - 1];
       if (!cap || participants().length > 1) return renderCaptions(log);
-      cap.textContent = speakable(msg.text);
+      // A medio decir, sin el punto que speakable agrega al final.
+      const said = speakable(msg.text);
+      cap.textContent = msg.streaming && !/[.!?…:;,]\s*$/.test(msg.text) ? said.replace(/\.$/, "") : said;
       log.scrollTop = log.scrollHeight;
       return;
     }
@@ -3314,7 +3321,9 @@ function renderChatFoot() {
           aria-label="${esc(t("cam.open"))}" title="${esc(t("cam.open"))}">${ICON.camera}</button>
         <input type="file" id="cam-input" accept="image/*" capture="environment" hidden>` : ""}
         <textarea id="chat-input" rows="1" placeholder="${esc(t(window.matchMedia("(max-width: 860px), (pointer: coarse)").matches ? "chat.ph_short" : "chat.ph"))}" ${CHAT.busy ? "disabled" : ""}></textarea>
-        <button class="send-btn" type="button" data-chat-act="send" ${CHAT.busy || attachBusy() ? "disabled" : ""} aria-label="${esc(t("chat.send"))}" title="${esc(t("chat.send"))}">${ICON.send}</button>
+        ${CHAT.busy
+    ? `<button class="send-btn stop" type="button" data-chat-act="stop-gen" aria-label="${esc(t("chat.stop_gen"))}" title="${esc(t("chat.stop_gen"))}">${ICON.stop}</button>`
+    : `<button class="send-btn" type="button" data-chat-act="send" ${attachBusy() ? "disabled" : ""} aria-label="${esc(t("chat.send"))}" title="${esc(t("chat.send"))}">${ICON.send}</button>`}
       </div>`;
     renderAttachTray();
     return;
@@ -3418,6 +3427,7 @@ async function onChatClick(e) {
   const act = e.target.closest("[data-chat-act]")?.dataset.chatAct;
   if (!act) return;
   if (act === "send") sendFromComposer();
+  if (act === "stop-gen") stopGeneration();
   else if (act === "retry") {
     const lu = CHAT.messages.map((m) => m.role).lastIndexOf("user");
     if (lu >= 0) resendFrom(lu);
@@ -3902,7 +3912,7 @@ function renderAttachTray() {
     </div>`;
   }).join("");
   const send = $("#chat-foot [data-chat-act=send]");
-  if (send) send.disabled = CHAT.busy || attachBusy();
+  if (send) send.disabled = attachBusy();
 }
 
 // Lo que se manda con el mensaje: para mostrar en el chat y para el modelo.
@@ -3950,11 +3960,21 @@ const voiceActive = () => (CHAT.mode === "voice" ? !!CHAT.conv : CHAT.voiceOn);
 // `force`: quiénes responden, sin mirar a quién se nombró (push to talk de
 // un asistente: lo dicho va a él).
 // `files`: adjuntos del mensaje (ver takeAttachments).
+// El botón de enviar mientras responde: corta la generación y lo que falte
+// de la ronda; lo escrito hasta ahí se queda (ver "interrupted" en askAssistant).
+function stopGeneration() {
+  CHAT.stopGen = true;
+  CHAT.roundStopped = true;
+  CHAT.chatAbort?.abort();
+  stopSpeaking();
+}
+
 async function sendChat(text, lang, force = null, files = null) {
   // Mientras ComfyUI dibuja con la GPU del asistente, lo que digas espera
   // su turno (ver featureHoldSend en features.js).
   if (featureHoldSend(() => sendChat(text, lang, force, files), text)) return;
   const epoch = CHAT.epoch;
+  CHAT.stopGen = false;
   const id = uid();
   CHAT.messages.push({ role: "user", id, text, lang, files: files?.display });
   CHAT.history.push({ role: "user", id, content: text, ...(files?.history || {}) });
@@ -3978,6 +3998,7 @@ async function sendChat(text, lang, force = null, files = null) {
   for (const key of order) {
     // Lo sacaron en este mismo turno ("Jarvis, saca a Bella"): ya no responde.
     const name = key === HOST ? S.view?.name : key;
+    if (CHAT.stopGen) break;
     if (CHAT.groupActions.some((g) => g.action === "remove" && g.name === name)) continue;
     const round = all ? { all: true, answered: [...answered], total: order.length } : null;
     if (!(await askAssistant(key, lang, group, epoch, round)) || epoch !== CHAT.epoch || CHAT.roundStopped || HF.queued) break;
@@ -4030,11 +4051,40 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
   // pidió otra respuesta) y llega de nuevo.
   const ctrl = new AbortController();
   CHAT.chatAbort = ctrl;
+  CHAT.sayingNow = "";
   let live = null; // el mensaje que se va escribiendo
   let speech = null; // la cola de voz de esta respuesta
+  // En modo voz el texto aparece mientras se dice, no mientras se genera:
+  // cada frase se revela según avanza su audio.
+  const followsVoice = () => CHAT.mode === "voice" && voiceActive() && !HF.queued;
+  let spoken = ""; // lo ya dicho completo
+  const showSpoken = (text) => {
+    if (!live) {
+      live = { role: "assistant", speaker: key, text, streaming: true };
+      CHAT.messages.push(live);
+      renderChatLog();
+    } else {
+      live.text = text;
+      paintLive(live);
+    }
+  };
+  const reveal = (sentence, progress, finished) => {
+    if (epoch !== CHAT.epoch) return;
+    const base = spoken ? `${spoken} ` : "";
+    if (finished) {
+      spoken = base + sentence;
+      showSpoken(spoken);
+      return;
+    }
+    // Por caracteres (lo que dura cada palabra), sin cortar palabras.
+    const upto = Math.ceil(sentence.length * Math.min(progress, 1));
+    const space = sentence.indexOf(" ", upto);
+    showSpoken(base + (space < 0 ? sentence : sentence.slice(0, space)));
+  };
   const dropLive = () => {
     if (live) CHAT.messages.splice(CHAT.messages.indexOf(live), 1);
     live = null;
+    spoken = "";
   };
   try {
     const res = await fetch("/api/chat", {
@@ -4092,6 +4142,8 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
           // El modelo invitó o sacó a alguien: se aplica al terminar el turno.
           CHAT.groupActions.push({ action: ev.action, name: ev.assistant, by: key === HOST ? S.view?.name : key });
         } else if (ev.type === "delta" && epoch === CHAT.epoch) {
+          CHAT.sayingNow = (CHAT.sayingNow || "") + ev.text; // para reconocer su propio eco (isOwnEcho)
+          if (followsVoice()) continue; // lo escribe la voz, ver reveal
           if (!live) {
             live = { role: "assistant", speaker: key, text: ev.text, streaming: true };
             CHAT.messages.push(live);
@@ -4107,7 +4159,7 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
               CHAT.speaker = key;
               speech = speechStream();
             }
-            speech.push(ev.text, sayLang, ttsParamsFor(key, sayLang));
+            speech.push(ev.text, sayLang, ttsParamsFor(key, sayLang), followsVoice() ? reveal : null);
           }
         } else if (ev.type === "reset" && epoch === CHAT.epoch) {
           dropLive();
@@ -4166,8 +4218,27 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
     return false;
   }
   CHAT.lastLang = replyLang;
+  const tts = ttsParamsFor(key, replyLang);
+  if (speech && followsVoice()) {
+    // El texto termina de aparecer con la voz. Si la cortaron, en la
+    // conversación queda lo que alcanzó a decir, que es lo que se oyó.
+    speech.close();
+    await speech.done;
+    if (epoch !== CHAT.epoch) return false;
+    const heardText = speech.halted ? (live?.text.trim() || "") : reply;
+    if (heardText) {
+      const shown = live || { role: "assistant", speaker: key };
+      Object.assign(shown, { text: heardText, lang: replyLang, tts });
+      delete shown.streaming;
+      if (!live) CHAT.messages.push(shown);
+      CHAT.history.push({ role: "assistant", content: heardText, speaker: key, ...(turnFiles.length ? { files: turnFiles } : {}) });
+    } else dropLive();
+    renderChatLog();
+    renderChatFoot();
+    return !speech.halted;
+  }
   const msg = live || { role: "assistant", speaker: key };
-  Object.assign(msg, { text: reply, lang: replyLang, tts: ttsParamsFor(key, replyLang) });
+  Object.assign(msg, { text: reply, lang: replyLang, tts });
   delete msg.streaming;
   if (!live) CHAT.messages.push(msg);
   CHAT.history.push({ role: "assistant", content: reply, speaker: key, ...(turnFiles.length ? { files: turnFiles } : {}) });
@@ -4812,9 +4883,11 @@ function ensureOutputAnalyser() {
     analyser.smoothingTimeConstant = 0.75;
     analyser.minDecibels = -90;
     analyser.maxDecibels = -20;
+    const gain = ctx.createGain();
     ctx.createMediaElementSource(chatAudioEl()).connect(analyser);
-    analyser.connect(ctx.destination);
-    Object.assign(OUT, { ctx, analyser });
+    analyser.connect(gain);
+    gain.connect(ctx.destination);
+    Object.assign(OUT, { ctx, analyser, gain });
   } catch { /* sin Web Audio: suena igual, el aro se anima solo */ }
 }
 
@@ -4837,10 +4910,17 @@ function orbSourceFor(key) {
   };
 }
 
-function playUrl(url) {
+// `onProgress(fracción, terminó)`: para que el texto siga a la voz.
+function playUrl(url, onProgress = null) {
   return new Promise((resolve) => {
     const a = chatAudioEl();
+    const ticker = onProgress && setInterval(() => {
+      if (a.duration > 0) onProgress(a.currentTime / a.duration, false);
+    }, 70);
     const done = () => {
+      clearInterval(ticker);
+      // Cortado a la mitad (barge-in): el texto se queda donde iba.
+      if (onProgress && (a.ended || a.error)) onProgress(1, true);
       if (CHAT.audioDone === done) {
         CHAT.audio = null;
         CHAT.audioDone = null;
@@ -4908,11 +4988,11 @@ function speechStream() {
     haltAudio();
   }
   const gen = CHAT.speakGen;
-  const st = { items: [], wake: null, closed: false };
-  st.push = (text, lang, tts) => {
+  const st = { items: [], wake: null, closed: false, halted: false };
+  st.push = (text, lang, tts, reveal = null) => {
     const clean = speakable(text, lang);
     if (!clean || gen !== CHAT.speakGen) return;
-    st.items.push(ttsUrl(clean, tts).catch((e) => { toast(e.message, "error"); return null; }));
+    st.items.push({ url: ttsUrl(clean, tts).catch((e) => { toast(e.message, "error"); return null; }), text, reveal });
     st.wake?.();
   };
   st.close = () => {
@@ -4923,20 +5003,28 @@ function speechStream() {
     if (announce) await announce;
     let speaking = false;
     for (;;) {
-      if (gen !== CHAT.speakGen) return;
+      if (gen !== CHAT.speakGen) {
+        st.halted = true;
+        return;
+      }
       if (!st.items.length) {
         if (st.closed) break;
         await new Promise((r) => { st.wake = r; });
         st.wake = null;
         continue;
       }
-      const url = await st.items.shift();
-      if (gen !== CHAT.speakGen) return;
+      const item = st.items.shift();
+      const url = await item.url;
+      if (gen !== CHAT.speakGen) {
+        st.halted = true;
+        return;
+      }
       if (!speaking) {
         setSpeaking(true);
         speaking = true;
       }
-      if (url) await playUrl(url);
+      if (url) await playUrl(url, item.reveal && ((part, finished) => item.reveal(item.text, part, finished)));
+      else item.reveal?.(item.text, 1, true);
     }
     if (speaking && gen === CHAT.speakGen) setSpeaking(false);
   })();
@@ -4951,7 +5039,14 @@ function haltAudio() {
 function stopSpeaking() {
   CHAT.speakGen++;
   haltAudio();
+  duckOutput(false);
   setSpeaking(false);
+}
+
+// Baja la voz del asistente mientras se comprueba si le están hablando.
+function duckOutput(on) {
+  if (OUT.gain) OUT.gain.gain.setTargetAtTime(on ? BARGE.duck : 1, OUT.ctx.currentTime, 0.04);
+  else if (CHAT.audio) CHAT.audio.volume = on ? BARGE.duck : 1;
 }
 
 // Conversación por voz con el micrófono del NAVEGADOR (con cancelación de
@@ -5056,14 +5151,15 @@ async function convLoop(conv) {
     // No se escucha mientras piensa o habla (p. ej. la frase con que lo
     // llamaste por su nombre, que llegó del servidor).
     // Mientras habla, si empiezas a hablar se calla y te escucha (barge-in).
-    const barged = await waitTurn(conv);
+    const barge = await waitTurn(conv);
+    const barged = !!barge;
     if (!conv.active) break;
     // Micrófono silenciado desde el botón: la conversación sigue abierta pero no escucha.
     if (CHAT.micMuted) {
       await new Promise((r) => setTimeout(r, 200));
       continue;
     }
-    const blob = await captureUtterance(conv, { barge: barged });
+    const blob = await captureUtterance(conv, { barge: barged, carry: barge?.slot });
     if (!conv.active) break;
     if (!blob) {
       // Quedó una frase a medias y no siguió hablando: se manda como está.
@@ -5090,7 +5186,7 @@ async function convLoop(conv) {
       // "Todos los configurados": Whisper elige entre los idiomas del
       // asistente; "Solo X": entiende y responde solo en X.
       const langs = CHAT.lang === "auto" ? chatLangs() : [CHAT.lang];
-      const query = `langs=${encodeURIComponent(langs.join(","))}&hint=${encodeURIComponent(spokenLang(CHAT.lang))}`;
+      const query = `langs=${encodeURIComponent(langs.join(","))}&hint=${encodeURIComponent(spokenLang(CHAT.lang))}${barge ? `&skip=${barge.skip.toFixed(2)}` : ""}`;
       const res = await fetch(`/api/chat/transcribe?${query}`, {
         method: "POST",
         headers: { "Content-Type": blob.type || "audio/webm", "X-UI-Lang": S.lang },
@@ -5098,7 +5194,7 @@ async function convLoop(conv) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      text = data.text || "";
+      text = data.text || barge?.text || "";
       // Whisper dudó del idioma: lo decide el modelo por lo que dijiste ("auto").
       lang = data.confident === false && CHAT.lang === "auto" && chatLangs().length > 1 ? "auto" : data.lang || null;
     } catch (e) {
@@ -5130,7 +5226,9 @@ async function convLoop(conv) {
 
 // ── Interrumpir hablando (barge-in) ───────────────────────────────────
 // Mientras el asistente piensa o habla se espera el turno; pero si habla y
-// tú empiezas a hablar, se calla y te escucha. Para no confundir su propia
+// tú empiezas a hablar, baja la voz y Whisper mira qué fue: solo si oyó
+// habla de verdad se calla y te escucha (ver bargeConfirmed). Un ruido no lo
+// corta. Para no confundir su propia
 // voz (que entra por el micrófono desde el altavoz) con la tuya, se mide al
 // principio cuánto del altavoz llega al micrófono (eco) y solo cuenta como
 // interrupción algo bastante más fuerte que eso. El navegador además resta
@@ -5140,7 +5238,115 @@ async function convLoop(conv) {
 // las últimas 16 mediciones (~0,2 s de ~0,5 s), aunque venga a ráfagas:
 // antes se pedían 0,035 durante 0,25 s seguidos y no saltaba nunca.
 // Devuelve true si se interrumpió.
-const BARGE = { floor: 0.012, every: 30, window: 16, need: 6, calibrateMs: 700 };
+const BARGE = { floor: 0.012, every: 30, window: 16, need: 6, calibrateMs: 700, duck: 0.35,
+  firstProbeMs: 550, reprobeMs: 500, quietMs: 450, maxMs: 4000, preRoll: 1.0, ringMs: 3000 };
+
+// Mientras el asistente habla se graba siempre (dos grabaciones escalonadas
+// que se reinician), para que al interrumpir ya esté el principio de lo dicho.
+class BargeRing {
+  constructor(conv) {
+    this.conv = conv;
+    this.slots = [];
+    this.mime = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((m) => MediaRecorder.isTypeSupported(m));
+  }
+
+  _open() {
+    const rec = new MediaRecorder(this.conv.stream, this.mime ? { mimeType: this.mime } : undefined);
+    const slot = { rec, chunks: [], at: performance.now(), waiter: null };
+    rec.ondataavailable = (e) => {
+      if (e.data.size) slot.chunks.push(e.data);
+      slot.waiter?.();
+      slot.waiter = null;
+    };
+    rec.start();
+    this.slots.push(slot);
+  }
+
+  _drop(slot) {
+    slot.rec.ondataavailable = null;
+    if (slot.rec.state !== "inactive") slot.rec.stop();
+  }
+
+  tick(now) {
+    if (!this.slots.length || (this.slots.length === 1 && now - this.slots[0].at >= BARGE.ringMs / 2)) this._open();
+    if (now - this.slots[0].at >= BARGE.ringMs) {
+      this._drop(this.slots.shift());
+      this._open();
+    }
+  }
+
+  // La grabación con más audio; las demás se cierran.
+  hold() {
+    const [slot, ...rest] = this.slots;
+    rest.forEach((s) => this._drop(s));
+    this.slots = [slot];
+    return slot;
+  }
+
+  snapshot(slot) {
+    return new Promise((resolve) => {
+      slot.waiter = () => resolve(new Blob(slot.chunks, { type: slot.rec.mimeType || "audio/webm" }));
+      slot.rec.requestData();
+    });
+  }
+
+  close(keep = null) {
+    this.slots.filter((s) => s !== keep).forEach((s) => this._drop(s));
+    this.slots = [];
+  }
+}
+
+// ¿Lo transcrito es lo que el propio asistente está diciendo (eco)? Las
+// frases muy cortas no cuentan: "para" también puede estar en lo que dice.
+function isOwnEcho(text) {
+  const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").match(/[\p{L}\p{N}]+/gu) || [];
+  const words = norm(text);
+  if (words.length < 3) return false;
+  const last = [...CHAT.messages].reverse().find((m) => m.role === "assistant");
+  const said = new Set(norm(`${last?.text || ""} ${CHAT.sayingNow || ""}`));
+  return words.filter((w) => said.has(w)).length / words.length >= 0.7;
+}
+
+// Sonó algo fuerte mientras habla: con la voz baja, se le pregunta a Whisper
+// si fue habla. {slot, skip, text} si lo fue; null si era ruido (sigue igual).
+async function bargeConfirmed(conv, ring, threshold) {
+  const slot = ring.hold();
+  const t0 = performance.now();
+  // Solo lo que se grabó justo antes de detectarlo: lo anterior es su voz.
+  const skip = Math.max(0, (t0 - slot.at) / 1000 - BARGE.preRoll);
+  duckOutput(true);
+  let last = t0;
+  let nextProbe = t0 + BARGE.firstProbeMs;
+  const langs = CHAT.lang === "auto" ? chatLangs() : [CHAT.lang];
+  const query = `probe=1&skip=${skip.toFixed(2)}&langs=${encodeURIComponent(langs.join(","))}&hint=${encodeURIComponent(spokenLang(CHAT.lang))}`;
+  while (conv.active) {
+    await new Promise((r) => setTimeout(r, BARGE.every));
+    const now = performance.now();
+    if (micLevel(conv) > threshold * 0.8) last = now;
+    const quiet = now - last;
+    if (now < nextProbe && quiet < BARGE.quietMs) continue;
+    let probe = {};
+    try {
+      const blob = await ring.snapshot(slot);
+      const res = await fetch(`/api/chat/transcribe?${query}`, {
+        method: "POST", headers: { "Content-Type": blob.type || "audio/webm", "X-UI-Lang": S.lang }, body: blob,
+      });
+      probe = await res.json();
+    } catch { /* sin respuesta: como si fuera ruido */ }
+    if (probe.real && !isOwnEcho(probe.text)) {
+      console.debug("[barge] speech", Math.round(performance.now() - t0), "ms", probe.text);
+      window.__bargeLog?.push({ kind: "speech", ms: Math.round(performance.now() - t0), text: probe.text });
+      return { slot, skip, text: probe.text };
+    }
+    if (quiet >= BARGE.quietMs || performance.now() - t0 > BARGE.maxMs || !(CHAT.busy || CHAT.speaking)) break;
+    nextProbe = performance.now() + BARGE.reprobeMs;
+  }
+  console.debug("[barge] not speech after", Math.round(performance.now() - t0), "ms");
+  window.__bargeLog?.push({ kind: "noise", ms: Math.round(performance.now() - t0) });
+  duckOutput(false);
+  ring.close();
+  return null;
+}
 
 async function waitTurn(conv) {
   let start = 0;
@@ -5148,6 +5354,8 @@ async function waitTurn(conv) {
   let echo = null;
   let recent = [];
   const outBuf = OUT.analyser ? new Float32Array(OUT.analyser.fftSize) : null;
+  const ring = conv.analyser && !conv.hf ? new BargeRing(conv) : null;
+  let confirmed = null;
   while (conv.active && (CHAT.busy || CHAT.speaking)) {
     await new Promise((r) => setTimeout(r, BARGE.every));
     if (!CHAT.speaking || CHAT.micMuted || !conv.analyser || conv.hf) {
@@ -5155,10 +5363,12 @@ async function waitTurn(conv) {
       ratios = [];
       echo = null;
       recent = [];
+      ring?.close();
       continue;
     }
     const now = performance.now();
     if (!start) start = now;
+    ring.tick(now);
     const mic = micLevel(conv);
     let out = 0;
     if (outBuf && OUT.ctx?.state === "running") {
@@ -5181,13 +5391,19 @@ async function waitTurn(conv) {
     recent.push(mic > threshold);
     if (recent.length > BARGE.window) recent.shift();
     if (recent.filter(Boolean).length >= BARGE.need) {
+      recent = [];
+      confirmed = await bargeConfirmed(conv, ring, threshold);
+      if (!confirmed) continue;
       CHAT.roundStopped = true; // en una ronda de opiniones, no siguen los demás
       stopSpeaking();
       CHAT.chatAbort?.abort(); // si todavía estaba generando, el servidor para
-      return true;
+      window.__bargeLog?.push({ kind: "stopped", at: performance.now() });
+      ring.close(confirmed.slot);
+      return confirmed;
     }
   }
-  return false;
+  ring?.close();
+  return null;
 }
 
 // Una frase entendida en la conversación por voz (micrófono del navegador
@@ -5224,14 +5440,15 @@ function micLevel(conv) {
 // 2 s por defecto; antes 0,9 s fijos cortaban la pregunta al pensar). VAD
 // por energía, como stt_whisper.py. La grabación arranca antes de detectar
 // voz para no cortar el principio de la frase.
-function captureUtterance(conv, { barge = false } = {}) {
+function captureUtterance(conv, { barge = false, carry = null } = {}) {
   return new Promise((resolve) => {
     setConvState(barge ? "hearing" : "listening", barge ? t("conv.barged") : CHAT.convNote);
     const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((m) => MediaRecorder.isTypeSupported(m));
-    const rec = new MediaRecorder(conv.stream, mime ? { mimeType: mime } : undefined);
-    const chunks = [];
+    // Al interrumpir sigue la grabación que ya tiene el principio de lo dicho.
+    const rec = carry?.rec || new MediaRecorder(conv.stream, mime ? { mimeType: mime } : undefined);
+    const chunks = carry?.chunks || [];
     rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    rec.start();
+    if (!carry) rec.start();
     const startedAt = performance.now();
     // Sin voz durante este tiempo se reinicia la grabación (o, si la abrió
     // una llamada por nombre, se cierra la conversación: ver convLoop).

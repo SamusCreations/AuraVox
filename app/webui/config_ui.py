@@ -2100,7 +2100,13 @@ class Handler(BaseHTTPRequestHandler):
         langs = [c for c in (query.get("langs", [""])[0]).split(",") if c in _LANGUAGES]
         hint = query.get("hint", [""])[0]
         try:
-            text, lang = chat_runtime.transcribe(audio, langs, hint if hint in _LANGUAGES else None)
+            skip = min(30.0, max(0.0, float(query.get("skip", ["0"])[0])))
+        except ValueError:
+            skip = 0.0
+        if query.get("probe", [""])[0] == "1":
+            return self._send_json(chat_runtime.probe_speech(audio, langs, hint if hint in _LANGUAGES else None, skip))
+        try:
+            text, lang = chat_runtime.transcribe(audio, langs, hint if hint in _LANGUAGES else None, skip)
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
             raise store.ConfigError(tr("stt_failed", error=e), status=500)

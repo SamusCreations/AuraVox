@@ -248,6 +248,7 @@ class WhisperSTT:
         self.last_confident = False
         # Cómo se decidió el idioma la última vez (para el log).
         self.last_detail = ""
+        self.quality = {}  # idioma → qué tan seguro está Whisper de que oyó habla (ver _run)
 
     def _load(self):
         if self._model is not None:
@@ -318,6 +319,10 @@ class WhisperSTT:
             return "", float("-inf"), info
         weights = [max(seg.end - seg.start, 0.01) for seg in segments]
         score = sum(seg.avg_logprob * w for seg, w in zip(segments, weights)) / sum(weights)
+        self.quality[language or info.language] = {
+            "no_speech": min(seg.no_speech_prob for seg in segments), "logprob": score,
+            "vad_seconds": getattr(info, "duration_after_vad", None) or 0.0,
+        }
         return text, score, info
 
     def _candidates(self, audio: np.ndarray, hint, allowed: set) -> tuple:

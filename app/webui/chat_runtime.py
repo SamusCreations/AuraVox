@@ -21,6 +21,7 @@ import gc
 import io
 import json
 import os
+import re
 import threading
 import time
 
@@ -262,13 +263,43 @@ def transcribe_words(audio, language: str) -> list:
                            for w in (s.words or [])]} for s in segments]
 
 
-def transcribe(data: bytes, languages, hint: str = None) -> tuple:
-    """Audio grabado en el navegador (webm/ogg/wav, lo decodifica PyAV) →
-    (texto, idioma). Ver transcribe_array."""
+def probe_speech(data: bytes, languages, hint: str = None, skip: float = 0.0) -> dict:
+    """¿Esto que se grabó mientras el asistente hablaba es habla? {"text",
+    "lang", "real"}. Solo con lo que mide Whisper, sin listas de frases por
+    idioma: su VAD (el ruido no llega al modelo), la probabilidad de que no
+    haya habla y la de lo transcrito. `skip`: segundos a saltar del principio."""
     from faster_whisper import decode_audio
     from app.voice import stt_whisper
 
-    audio = decode_audio(io.BytesIO(data), sampling_rate=stt_whisper.CONFIG["samplerate"])
+    rate = stt_whisper.CONFIG["samplerate"]
+    try:
+        audio = decode_audio(io.BytesIO(data), sampling_rate=rate)[int(max(skip, 0.0) * rate):]
+    except Exception:  # noqa: BLE001 — un trozo de grabación que no se puede leer no es habla
+        return {"text": "", "lang": None, "real": False}
+    if len(audio) < 0.2 * rate:
+        return {"text": "", "lang": None, "real": False}
+    with _stt_lock:
+        stt = _ensure_stt()
+        stt.quality.clear()
+        t0 = time.time()
+        text, lang = stt.transcribe(audio, hint=hint, languages=set(languages or pipeline_languages()))
+        q = stt.quality.get(lang)
+    text = text.strip()
+    real = bool(re.search(r"\w", text)) and bool(q) and q["no_speech"] < 0.5 and q["logprob"] >= -1.0 and q["vad_seconds"] >= 0.25
+    log("stt", f"barge-in probe, {len(audio) / rate:.1f}s in {time.time() - t0:.2f}s: «{_short(text) or '(empty)'}» → "
+               f"{'speech' if real else 'not speech'}" + (f" (no_speech {q['no_speech']:.2f}, logprob {q['logprob']:.2f})" if q else ""))
+    return {"text": text if real else "", "lang": lang, "real": real}
+
+
+def transcribe(data: bytes, languages, hint: str = None, skip: float = 0.0) -> tuple:
+    """Audio grabado en el navegador (webm/ogg/wav, lo decodifica PyAV) →
+    (texto, idioma). `skip`: segundos a saltar del principio (la cola de la
+    grabación que ya había cuando empezaste a interrumpir). Ver transcribe_array."""
+    from faster_whisper import decode_audio
+    from app.voice import stt_whisper
+
+    rate = stt_whisper.CONFIG["samplerate"]
+    audio = decode_audio(io.BytesIO(data), sampling_rate=rate)[int(max(skip, 0.0) * rate):]
     text, lang, confident = transcribe_array(audio, languages, hint)
     transcribe.last_confident = confident
     return text, lang
@@ -613,6 +644,7 @@ def chat(cfg: dict, shared_context: str, history: list, reply_lang: str, on_tool
         keep_alive=CHAT_KEEP_ALIVE,
         on_event=_log_event(label),
         style=style,
+        expressiveness=cfg.get("expressiveness", "lots"),
         auto_langs=auto_langs,
         info=info,
         assistant_name=label,

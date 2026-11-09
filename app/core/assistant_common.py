@@ -603,9 +603,9 @@ RESPONSE_STYLES = {
         "what you know), never a vague summary like \"there are some limits\", \"it depends\" or \"it has "
         "several conditions\" without saying which. Usually two to four sentences (about 20 to 70 words), "
         "essentials first; a greeting or a yes/no question gets one sentence. If the answer is a list, say the "
-        "three most important items concretely and offer to go on with the rest. No filler and no generic "
-        "intro. Don't end every reply with a question or an offer; only when it really helps. This length rule "
-        "takes priority over any other length instruction, including your personality's."
+        "three most important items concretely and offer to go on with the rest. No generic intro like \"great "
+        "question\". Don't end every reply with a question or an offer; only when it really helps. This length "
+        "rule takes priority over any other length instruction, including your personality's."
     ),
     "text": (
         "Reply mode: WRITTEN CHAT. The user READS your reply on screen (if it's also read aloud, the formatting "
@@ -642,6 +642,30 @@ _STYLE_REMINDERS = {
 }
 
 
+# Cuánto se nota que es una conversación hablada (`expressiveness` de cada
+# asistente). Se escribe como palabras porque así lo dice cualquier voz; las
+# acotaciones se siguen rechazando (ver _STAGE_RE).
+EXPRESSIVENESS = {
+    "none": "",
+    "some": (
+        "Sound like a person talking, not reading: now and then use a spontaneous reaction or filler that is "
+        "natural in the reply's language, and punctuation that shapes the intonation. Write them as the actual "
+        "words you say, never as stage directions in parentheses, brackets or asterisks."
+    ),
+    "lots": (
+        "Sound like a real person in a live conversation, not someone reading. Be very expressive, in the way "
+        "that is natural in the reply's language and fits your personality: start with real reactions, and "
+        "use interjections and fillers freely (the local equivalents of things like \"mmm\", \"uff\", \"ay\", "
+        "\"wow\", \"oh\", \"well\", \"you know\", \"let's see\"), laughter written as sound (\"haha\", in the "
+        "spelling of that language) when something is funny, thinking pauses with \"...\", small "
+        "self-corrections, and colloquial phrasing with contractions. Let exclamation and question marks carry "
+        "the intonation. Vary them: don't repeat the same expression in a reply and don't force them into "
+        "serious or sad topics. Write them as the actual words you say, never as stage directions in "
+        "parentheses, brackets or asterisks."
+    ),
+}
+
+
 def _turn_reminder(style: str, reply_lang: str, auto_langs=None) -> str:
     parts = [_STYLE_REMINDERS.get(style, "")]
     if reply_lang:
@@ -662,7 +686,8 @@ def turn_context(history: list, dynamic_context: str = None) -> str:
 
 
 def build_system_message(personality: str, shared_context: str = None, reply_lang: str = None, history: list = None,
-                         style: str = None, auto_langs=None, dynamic_context: str = None) -> str:
+                         style: str = None, auto_langs=None, dynamic_context: str = None,
+                         expressiveness: str = "lots") -> str:
     """Arma el system prompt completo para una petición: la `personality`
     de assistants.yaml (lo específico de ESE asistente) más el
     `shared_context` (reglas operativas comunes a todos, ver
@@ -699,7 +724,8 @@ def build_system_message(personality: str, shared_context: str = None, reply_lan
     parts.append(personality)
     if shared_context:
         parts.append(shared_context)
-    parts += [_usuario_ctx(), RESPONSE_STYLES.get(style, ""), dynamic_context or ""]
+    parts += [_usuario_ctx(), RESPONSE_STYLES.get(style, ""),
+              EXPRESSIVENESS.get(expressiveness, "") if style == "voice" else "", dynamic_context or ""]
     if reply_lang:
         name = language_label(reply_lang)
         parts.append(
@@ -1194,6 +1220,7 @@ def ask_with_tools(
     assistant_name: str = None,
     on_text=None,
     dynamic_context: str = None,
+    expressiveness: str = "lots",
 ) -> str:
     """Lógica común de conversación con herramientas para cualquier
     asistente de assistants.yaml. Llama directo a `model` (el base_model de
@@ -1253,7 +1280,8 @@ def ask_with_tools(
     written = style == "text"
     system_message = {
         "role": "system",
-        "content": build_system_message(personality, shared_context, reply_lang, history, style, auto_langs),
+        "content": build_system_message(personality, shared_context, reply_lang, history, style, auto_langs,
+                                        expressiveness=expressiveness),
     }
     working = [system_message] + list(history)
     # Lo que cambia en cada turno va al final (ver build_system_message), con

@@ -2033,3 +2033,4 @@ a.icon-btn { text-decoration: none; }
   .cu-inst, .cu-task, .cu-wf { padding: 10px; }
   .mm-row { padding: 10px; }
 }
+.send-btn.stop { background: var(--danger); color: #fff; }
