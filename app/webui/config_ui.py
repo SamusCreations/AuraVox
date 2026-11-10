@@ -168,8 +168,15 @@ def _voice_settings_state() -> dict:
 # ── Perfiles y permisos (ver profiles.py) ──────────────────────────────
 
 def can_see(a: dict, sess) -> bool:
-    """Un asistente compartido lo ven todos; uno privado, solo quien lo creó."""
-    return a["shared"] or (bool(sess) and not sess["guest"] and a["owner"] == sess["id"])
+    """Un asistente compartido lo ven todos; uno privado, solo quien lo creó.
+    Uno privado sin dueño (de antes de los perfiles) es de los
+    administradores: antes no lo veía nadie y "desaparecía" al desmarcar
+    «compartido» aunque su nombre seguía ocupado."""
+    if a["shared"]:
+        return True
+    if not sess or sess["guest"]:
+        return False
+    return a["owner"] == sess["id"] or (not a["owner"] and sess["role"] == "admin")
 
 
 def can_edit(a: dict, sess) -> bool:
@@ -1438,8 +1445,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json({"name": name, "state": self._state()})
             if method == "PUT" and m:
                 self._check_editable(m.group(1))
-                name = store.save_assistant(m.group(1), data.get("assistant") or {}, data.get("version"), _LANGUAGES)
-                knowledge.rename_assistant(m.group(1), name)  # sus documentos lo siguen
+                name = store.save_assistant(m.group(1), data.get("assistant") or {}, data.get("version"), _LANGUAGES,
+                                            owner=self._sess["id"])
+                if name != m.group(1):
+                    # Lo que es suyo lo sigue: documentos, conversaciones, recordatorios y rutinas.
+                    knowledge.rename_assistant(m.group(1), name)
+                    chat_store.rename_assistant(m.group(1), name)
+                    reminders.rename_assistant(m.group(1), name)
+                    routines.rename_assistant(m.group(1), name)
+                    server_log.log("assistants", f"renamed {m.group(1)} → {name}")
                 chat_runtime.prewarm_voices()
                 return self._send_json({"name": name, "state": self._state()})
             if method == "DELETE" and m:

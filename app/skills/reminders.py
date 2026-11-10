@@ -106,6 +106,19 @@ def snooze(owner: str, rid: str, minutes: float) -> dict:
         return r
 
 
+def rename_assistant(old: str, new: str) -> None:
+    """Los recordatorios los sigue diciendo el asistente renombrado."""
+    with _lock:
+        items = _load()
+        changed = False
+        for r in items:
+            if r.get("assistant") == old:
+                r["assistant"] = new
+                changed = True
+        if changed:
+            _save(items)
+
+
 def delete_owner(owner: str) -> None:
     with _lock:
         items = _load()

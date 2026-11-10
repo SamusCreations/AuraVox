@@ -35,6 +35,21 @@ def _path(name: str, profile: str) -> str:
     return os.path.join(profiles.chats_dir(profile), f"{name}.json")
 
 
+def rename_assistant(old: str, new: str) -> None:
+    """La conversación de cada perfil pasa al nombre nuevo (si ya hay una con
+    ese nombre, se deja la que estaba: no se pisa nada)."""
+    if old == new or not NAME_RE.match(old or "") or not NAME_RE.match(new or ""):
+        return
+    with _lock:
+        if not os.path.isdir(CHATS_DIR):
+            return
+        for profile in os.listdir(CHATS_DIR):
+            src = os.path.join(CHATS_DIR, profile, f"{old}.json")
+            dst = os.path.join(CHATS_DIR, profile, f"{new}.json")
+            if os.path.isfile(src) and not os.path.exists(dst):
+                os.replace(src, dst)
+
+
 def load(name: str, profile: str) -> dict:
     try:
         with open(_path(name, profile), encoding="utf-8") as f:

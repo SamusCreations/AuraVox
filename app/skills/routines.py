@@ -114,6 +114,32 @@ def save(profile: str, items) -> list:
     return clean
 
 
+def rename_assistant(old: str, new: str) -> None:
+    """Las rutinas de todos los perfiles que usaban al asistente renombrado."""
+    with _lock:
+        if not os.path.isdir(ROUTINES_DIR):
+            return
+        for name in os.listdir(ROUTINES_DIR):
+            path = os.path.join(ROUTINES_DIR, name)
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                continue
+            items = data.get("routines") if isinstance(data, dict) else None
+            if not isinstance(items, list) or not any(isinstance(r, dict) and r.get("assistant") == old for r in items):
+                continue
+            for r in items:
+                if isinstance(r, dict) and r.get("assistant") == old:
+                    r["assistant"] = new
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+            os.replace(tmp, path)
+
+
 def delete_owner(profile: str) -> None:
     with _lock:
         try:

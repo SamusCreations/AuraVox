@@ -538,8 +538,9 @@ def _with_section(sections: dict, old, new: str, words: list) -> dict:
 
 def save_assistant(original, data: dict, expected_version, languages: list, owner: str = "") -> str:
     """Crea (original=None) o actualiza/renombra un asistente. Devuelve su
-    nombre final. `owner`: el perfil que lo crea (al actualizar se queda con
-    el que tenía)."""
+    nombre final. `owner`: el perfil que lo crea o lo guarda. Al actualizar
+    se queda con el dueño que tenía; si no tenía (de los administradores) y
+    pasa a ser privado, queda de quien lo guardó, para que siga viéndolo."""
     with _LOCK:
         text, version, raw, names = _snapshot()
         _check_version(version, expected_version)
@@ -561,7 +562,7 @@ def save_assistant(original, data: dict, expected_version, languages: list, owne
             assistants.append(clean)
         else:
             before = assistant_view(original, raw[original])
-            clean["owner"] = before["owner"]
+            clean["owner"] = before["owner"] or ("" if clean.get("shared", True) else _owner(owner))
             if before.get("_extra"):
                 clean["_extra"] = before["_extra"]
             assistants[names.index(original)] = clean
