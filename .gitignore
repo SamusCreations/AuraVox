@@ -41,6 +41,7 @@ audio/*.mp3
 audio/*.ogg
 audio/*.webm
 audio/voice_previews/*/custom-*
+audio/voice_previews/*/custom_*
 
 # ── Backups, assistant exports (.auravox), and server logs ───────────
 backups/

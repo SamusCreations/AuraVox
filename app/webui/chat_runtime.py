@@ -42,6 +42,7 @@ from app.core.assistant_common import (
 from app.webui.server_log import log
 
 PREVIEWS_DIR = paths.VOICE_PREVIEWS_DIR
+CUSTOM_PREVIEWS_DIR = paths.CUSTOM_VOICE_PREVIEWS_DIR
 
 # Lo que dice cada muestra de voz, por idioma de la interfaz.
 PREVIEW_TEXT = {
@@ -179,15 +180,16 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
 def ensure_preview(lang: str, voice: str) -> str:
     """Ruta de la muestra de `voice` en `lang` (audio/voice_previews/<lang>/
     <voz>.wav); la genera y la guarda la primera vez que se pide. Las de las
-    voces clonadas llevan la marca de la voz en el nombre (si se cambia el
-    audio o el texto de referencia, se genera otra)."""
+    voces clonadas van en config/custom_voices/previews/<lang>/ (fuera de
+    git) y llevan la marca de la voz en el nombre (si se cambia el audio o el
+    texto de referencia, se genera otra)."""
     from app.core import voice_settings
 
     if voice_settings.is_custom(voice):
         custom = voice_settings.get_voice(voice)
         if not custom:
             raise FileNotFoundError(voice)
-        path = os.path.join(PREVIEWS_DIR, lang, f"custom_{custom['id']}_{custom['stamp']}.wav")
+        path = os.path.join(CUSTOM_PREVIEWS_DIR, lang, f"{custom['id']}_{custom['stamp']}.wav")
     else:
         path = os.path.join(PREVIEWS_DIR, lang, f"{voice}.wav")
     if not os.path.isfile(path):

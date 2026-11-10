@@ -223,6 +223,16 @@ def delete_voice(vid: str) -> None:
                     os.remove(os.path.join(paths.CONFIG_DIR, rel))
             except OSError:
                 pass
+        # Sus muestras en cada idioma.
+        if os.path.isdir(paths.CUSTOM_VOICE_PREVIEWS_DIR):
+            for lang in os.listdir(paths.CUSTOM_VOICE_PREVIEWS_DIR):
+                folder = os.path.join(paths.CUSTOM_VOICE_PREVIEWS_DIR, lang)
+                for name in os.listdir(folder) if os.path.isdir(folder) else []:
+                    if name.startswith(f"{vid}_"):
+                        try:
+                            os.remove(os.path.join(folder, name))
+                        except OSError:
+                            pass
 
 
 def new_voice_id(name: str) -> str:

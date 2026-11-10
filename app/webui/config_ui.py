@@ -1219,7 +1219,8 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:  # noqa: BLE001
                     traceback.print_exc()
                     return self._send_json({"error": tr("tts_failed", error=e)}, 500)
-                return self._send_file(preview, chat_runtime.PREVIEWS_DIR)
+                custom = os.path.realpath(preview).startswith(os.path.realpath(chat_runtime.CUSTOM_PREVIEWS_DIR) + os.sep)
+                return self._send_file(preview, chat_runtime.CUSTOM_PREVIEWS_DIR if custom else chat_runtime.PREVIEWS_DIR)
             if path == "/api/state":
                 return self._send_json(self._state())
             if path == "/api/profiles":

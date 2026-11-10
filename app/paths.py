@@ -33,6 +33,9 @@ WEBUI_LOG = os.path.join(LOGS_DIR, "webui_server.log")
 # (sus audios de referencia), editables desde "Ajustes compartidos".
 VOICE_SETTINGS_YAML = os.path.join(CONFIG_DIR, "voice_settings.yaml")
 CUSTOM_VOICES_DIR = os.path.join(CONFIG_DIR, "custom_voices")
+# Muestras de las voces clonadas (son la voz de alguien): aparte de las de
+# Supertonic que van en el repositorio, con los datos personales (fuera de git).
+CUSTOM_VOICE_PREVIEWS_DIR = os.path.join(CUSTOM_VOICES_DIR, "previews")
 QWEN_TTS_MODELS_DIR = os.path.join(ROOT, "cache", "qwen-tts")
 
 
