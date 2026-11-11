@@ -60,6 +60,7 @@ from app import paths
 from app.core import assistant_common
 from app.core import config_store as store
 from app.core import llm_remote, hf_hub, secrets_store
+from app.core import phrases
 from app.voice import wake_word_utils as ww
 from app.webui import chat_runtime, chat_store, dev_reload, file_store, i18n, model_updates, network, ollama_update
 from app.webui import profiles
@@ -1231,6 +1232,8 @@ class Handler(BaseHTTPRequestHandler):
                 out = models_api("GET", path, {}, parse_qs(urlsplit(self.path).query))
                 if out is not None:
                     return self._send_json(out)
+            if path == "/api/phrases":
+                return self._send_json(self._phrases_pool(parse_qs(urlsplit(self.path).query)))
             if path == "/api/models":
                 return self._send_json(list_models())
             if path == "/api/models/memory":
@@ -1478,6 +1481,15 @@ class Handler(BaseHTTPRequestHandler):
                 out = models_api(method, path, data, {})
                 if out is not None:
                     return self._send_json(out)
+            if method == "POST" and path == "/api/phrases/regenerate":
+                name = str(data.get("assistant") or "")
+                self._check_editable(name)
+                a = next((x for x in self._state()["assistants"] if x["name"] == name), None)
+                if not a:
+                    raise store.ConfigError(tr("assistant_missing", name=name), status=404)
+                cfg = store.assistant_view(name, {k: v for k, v in a.items() if k in store.KNOWN_FIELDS})
+                lang = str(data.get("lang") or cfg["language"])[:5]
+                return self._send_json({"started": phrases.ensure_async(cfg, lang, force=True, log=server_log.log)})
             if method == "POST" and path == "/api/models/measure":
                 return self._send_json(measure_model(str(data.get("model") or "")))
             if method == "POST" and path == "/api/models/update":
@@ -2232,6 +2244,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         def emit(event: dict) -> None:
+            # La página cortó (botón de detener, barge-in): se nota en el
+            # próximo evento y no recién al terminar la respuesta (visto: una
+            # búsqueda cancelada seguía con otra ronda del modelo y la revisión).
+            if self._client_gone():
+                raise ConnectionAbortedError("client closed the response")
             self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
             self.wfile.flush()
 
@@ -2258,7 +2275,10 @@ class Handler(BaseHTTPRequestHandler):
                     emit({"type": "say", "text": sentence, "lang": lang})
 
         try:
-            shared_context, history = self._fold_history(data, cfg, shared_context, history, group, emit)
+            previous = str(data.get("summary") or "")[:chat_store.SUMMARY_MAX]
+            if previous:
+                shared_context = ((shared_context + "\n\n") if shared_context else "") + \
+                    chat_runtime.SUMMARY_NOTE.format(summary=previous)
             with assistant_common.user_context_for(user_ctx):
                 reply, reply_lang = chat_runtime.chat(
                     cfg, shared_context, history, lang,
@@ -2283,6 +2303,9 @@ class Handler(BaseHTTPRequestHandler):
                 for sentence in rest:
                     emit({"type": "say", "text": sentence, "lang": reply_lang})
             emit({"type": "reply", "text": reply, "lang": reply_lang})
+            # El resumen de lo viejo, después de responder: la página ya
+            # está hablando y lo recibe al final del mismo flujo.
+            self._fold_history(data, cfg, "", history, group, emit)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # La página cortó la respuesta (barge-in, salió del chat): al
             # cerrarse la conexión con Ollama, deja de generar.
@@ -2303,11 +2326,13 @@ class Handler(BaseHTTPRequestHandler):
             "reasoning": {"type": "string"},
             "intent": {"type": "string", "enum": ["only_stop_talking", "something_else"]},
         }, "required": ["reasoning", "intent"]}
-        system = ("The user interrupted a voice assistant while it was talking and said the LAST USER line. Decide if that "
-                  "line ONLY asks it to stop or be quiet (\"stop\", \"enough\", \"ok, thanks, that's it\", \"shh\", in any "
-                  "language) and asks nothing else: \"only_stop_talking\". If it asks, says or corrects anything else (a "
-                  "new question, \"stop, I meant Paris\", \"wait, and tomorrow?\"), \"something_else\". Write "
-                  "\"reasoning\" first: one short sentence.")
+        system = ("The user interrupted a voice assistant while it was talking or working on the previous request (searching, "
+                  "using a tool, creating something) and said the LAST USER line. Decide if that line ONLY asks it to stop, "
+                  "be quiet or cancel what it was doing (\"stop\", \"enough\", \"cancel that\", \"never mind\", \"forget "
+                  "it\", \"ok, thanks, that's it\", \"shh\", or several of these together, in any language) and asks "
+                  "nothing else: \"only_stop_talking\". If it asks, says or corrects anything else (a new question, \"stop, I "
+                  "meant Paris\", \"wait, and tomorrow?\"), \"something_else\". Write \"reasoning\" first: one short "
+                  "sentence.")
         from app.core.assistant_engine import OLLAMA_URL
 
         t0 = time.time()
@@ -2319,6 +2344,31 @@ class Handler(BaseHTTPRequestHandler):
         server_log.log("chat", f"interrupted: {'only asked to stop talking' if stop else 'said something else'} in {time.time() - t0:.1f}s "
                                f"(«{str(data.get('reasoning', ''))[:100]}»)")
         return stop
+
+    def _client_gone(self) -> bool:
+        """¿Cerró la página la conexión? Sin bloquear. Por HTTPS no se puede
+        mirar sin leer: ahí se nota al escribir, como antes."""
+        import select
+
+        sock = self.connection
+        if isinstance(sock, ssl.SSLSocket):
+            return False
+        try:
+            readable, _w, _x = select.select([sock], [], [], 0)
+            return bool(readable) and sock.recv(1, socket.MSG_PEEK) == b""
+        except (OSError, ValueError):
+            return True
+
+    def _phrases_pool(self, query) -> dict:
+        """Las frases que dice el asistente solo (buscar, herramientas…) en
+        un idioma: ver app/core/phrases.py. Las genera de fondo si faltan."""
+        name = query.get("assistant", [""])[0]
+        lang = (query.get("lang", [""])[0] or "es")[:5]
+        a = next((x for x in visible_assistants(self._sess) if x["name"] == name), None)
+        if not a:
+            return {**{k: phrases.defaults(lang, k) for k in phrases.KINDS}, "pending": False}
+        cfg = store.assistant_view(name, {k: v for k, v in a.items() if k in store.KNOWN_FIELDS})
+        return phrases.pool(cfg, lang, log=server_log.log)
 
     @staticmethod
     def _fold_history(data: dict, cfg: dict, shared_context: str, history: list, group: dict, emit) -> tuple:

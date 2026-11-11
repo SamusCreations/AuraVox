@@ -795,6 +795,7 @@ function renderAssistant() {
   refreshSaveBar();
   scheduleWakeCheck(0);
   mountFeatureCards("assistant"); // documentos, exportar… (ver features.js)
+  loadPhrasePreview();
   if (!$("#settings-panel [data-jump].active")) S.asstCat = "sec-identity";
   selectAssistantCat(S.asstCat);
 }
@@ -1057,11 +1058,105 @@ function behaviorSection() {
       <select id="f-expressiveness" data-field="expressiveness">
         ${["none", "some", "lots"].map((v) => `<option value="${v}" ${(d.expressiveness || "lots") === v ? "selected" : ""}>${esc(t(`beh.expr_${v}`))}</option>`).join("")}
       </select><small>${esc(t("beh.expressiveness_help"))}</small></div>
-    <div class="grid-2">
-      ${textField({ field: "search_announcement", label: esc(t("beh.search")), value: d.search_announcement, placeholder: T.search_announcement, attrs: 'maxlength="300"' })}
-      ${textField({ field: "fallback_message", label: esc(t("beh.fallback")), value: d.fallback_message, placeholder: T.fallback_message, attrs: 'maxlength="300"' })}
-    </div>
+    ${phrasesSettings(d)}
   </section>`;
+}
+
+// Lo que dice solo (buscar, herramientas, crear, pensar, trabarse): por
+// tipo, generado por su modelo según la personalidad o una lista fija.
+const PHRASE_KINDS = ["search", "tool", "create", "wait", "fallback"];
+
+function phrasesSettings(d) {
+  const P = d.phrases || {};
+  const rows = PHRASE_KINDS.map((k) => {
+    const p = P[k] || { mode: "auto", fixed: [] };
+    return `<div class="ph-row" data-wrap="phrases.${k}">
+      <div class="ph-head"><strong>${esc(t(`ph.${k}`))}</strong>
+        <select data-ph-mode="${k}" aria-label="${esc(t("ph.mode"))}">
+          <option value="auto" ${p.mode !== "fixed" ? "selected" : ""}>${esc(t("ph.auto"))}</option>
+          <option value="fixed" ${p.mode === "fixed" ? "selected" : ""}>${esc(t("ph.fixed"))}</option>
+        </select></div>
+      <small class="note">${esc(t(`ph.${k}_help`))}</small>
+      <textarea data-ph-fixed="${k}" rows="3" ${p.mode === "fixed" ? "" : "hidden"} placeholder="${esc(t("ph.one_per_line"))}">${esc((p.fixed || []).join("\n"))}</textarea>
+      <div class="ph-preview" data-ph-preview="${k}" ${p.mode === "fixed" ? "hidden" : ""}></div>
+    </div>`;
+  }).join("");
+  return `<div class="phrases-box"><div class="card-head"><div><h3>${esc(t("ph.title"))}</h3><p>${esc(t("ph.sub"))}</p></div>
+    ${S.view?.kind === "assistant" ? `<button class="btn btn-sm" type="button" data-act="regen-phrases">${esc(t("ph.regen"))}</button>` : ""}</div>
+    ${rows}</div>`;
+}
+
+async function loadPhrasePreview() {
+  if (S.view?.kind !== "assistant" || !$("[data-ph-preview]")) return;
+  const lang = S.draft.language || "es";
+  try {
+    const pool = await api("GET", `/api/phrases?assistant=${encodeURIComponent(S.view.name)}&lang=${encodeURIComponent(lang)}`);
+    PHRASE_KINDS.forEach((k) => {
+      const box = $(`[data-ph-preview="${k}"]`);
+      if (box) box.innerHTML = `${pool.pending ? `<em>${esc(t("ph.generating"))}</em> ` : ""}${(pool[k] || []).slice(0, 4).map((p) => `<span class="chip">${esc(p)}</span>`).join("")}`;
+    });
+    if (pool.pending) setTimeout(loadPhrasePreview, 5000);
+  } catch { /* sin vista previa */ }
+}
+
+function onPhraseInput(el) {
+  const k = el.dataset.phMode || el.dataset.phFixed;
+  const P = (S.draft.phrases ||= {});
+  const p = (P[k] ||= { mode: "auto", fixed: [] });
+  if (el.dataset.phMode) {
+    p.mode = el.value;
+    $(`[data-ph-fixed="${k}"]`).hidden = p.mode !== "fixed";
+    $(`[data-ph-preview="${k}"]`).hidden = p.mode === "fixed";
+  } else {
+    p.fixed = el.value.split("\n").map((s) => s.trim()).filter(Boolean);
+  }
+  afterChange("phrases");
+}
+
+async function regenPhrases() {
+  try {
+    await api("POST", "/api/phrases/regenerate", { assistant: S.view.name, lang: S.draft.language || "es" });
+    toast(t("ph.regen_started"));
+    setTimeout(loadPhrasePreview, 1500);
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+
+// En el chat: las frases de cada asistente e idioma (se piden una vez).
+function phrasePool(key, lang) {
+  const name = key === HOST ? S.view?.name : key;
+  const id = `${name}|${lang}`;
+  CHAT.phrases ||= {};
+  if (!CHAT.phrases[id]) {
+    CHAT.phrases[id] = { pool: null };
+    api("GET", `/api/phrases?assistant=${encodeURIComponent(name || "")}&lang=${encodeURIComponent(lang)}`)
+      .then((p) => { CHAT.phrases[id].pool = p; if (p.pending) setTimeout(() => { delete CHAT.phrases[id]; }, 20000); })
+      .catch(() => { delete CHAT.phrases[id]; });
+  }
+  return CHAT.phrases[id].pool;
+}
+
+function pickPhrase(key, lang, kind) {
+  const list = phrasePool(key, lang)?.[kind] || [];
+  if (!list.length) return "";
+  CHAT.lastPhrase ||= {};
+  const last = CHAT.lastPhrase[kind];
+  const options = list.length > 1 ? list.filter((p) => p !== last) : list;
+  const choice = options[Math.floor(Math.random() * options.length)];
+  CHAT.lastPhrase[kind] = choice;
+  return choice;
+}
+
+// Qué frase dice antes de cada herramienta (las instantáneas, ninguna).
+const SEARCH_TOOLS = new Set(["web_search", "get_news"]);
+const CREATE_TOOLS = new Set(["generate_image", "edit_image", "generate_video"]);
+const SLOW_TOOLS = new Set(["get_weather", "find_nearby_places", "find_place", "play_music", "convert_file", "home_control", "home_find"]);
+function toolPhraseKind(name) {
+  if (SEARCH_TOOLS.has(name)) return "search";
+  if (CREATE_TOOLS.has(name)) return "create";
+  if (SLOW_TOOLS.has(name) || String(name).startsWith("mcp_")) return "tool";
+  return null;
 }
 
 function personalitySection() {
@@ -3334,8 +3429,8 @@ function renderChatFoot() {
   const orb = $("#orb");
   if (orb) {
     // Tocar el aro: mientras habla lo interrumpe; si no, abre o termina la conversación.
-    orb.dataset.chatAct = CHAT.speaking ? "stop-voice" : act;
-    orb.dataset.active = active || CHAT.speaking ? "1" : "0";
+    orb.dataset.chatAct = CHAT.speaking || CHAT.busy ? "stop-voice" : act;
+    orb.dataset.active = active || CHAT.speaking || CHAT.busy ? "1" : "0";
     orb.setAttribute("aria-label", label);
     orb.title = label;
   }
@@ -3358,7 +3453,7 @@ function renderChatFoot() {
       <small class="round-hint">${esc(t(muted ? "conv.muted_hint" : CHAT.speaking ? "conv.barge_hint" : "conv.mute_hint"))}</small></div>`);
     return;
   }
-  const interrupt = CHAT.speaking;
+  const interrupt = CHAT.speaking || CHAT.busy;
   const btnAct = interrupt ? "stop-voice" : act;
   const btnLabel = interrupt ? t("conv.interrupt") : label;
   foot.innerHTML = voiceSides(`<div class="mic-wrap">
@@ -3442,8 +3537,14 @@ async function onChatClick(e) {
     input.accept = attachAccept(); // según el modelo elegido en este momento
     input.click();
   } else if (act === "stop-voice") {
-    if (CHAT.mode === "voice" && CHAT.busy) CHAT.roundStopped = true;
-    stopSpeaking();
+    if (CHAT.busy && CHAT.chatAbort) {
+      // A media búsqueda o herramienta: se corta todo y vuelve a escuchar.
+      cancelTurnJobs([[...CHAT.history].reverse().find((h) => h.role === "user")?.id]);
+      stopGeneration();
+    } else {
+      if (CHAT.mode === "voice" && CHAT.busy) CHAT.roundStopped = true;
+      stopSpeaking();
+    }
   }
   else if (act === "conv-start") startConversation();
   else if (act === "conv-stop") stopConversation();
@@ -3963,6 +4064,7 @@ const voiceActive = () => (CHAT.mode === "voice" ? !!CHAT.conv : CHAT.voiceOn);
 // El botón de enviar mientras responde: corta la generación y lo que falte
 // de la ronda; lo escrito hasta ahí se queda (ver "interrupted" en askAssistant).
 function stopGeneration() {
+  if (CHAT.mode === "text") cancelTurnJobs([[...CHAT.history].reverse().find((h) => h.role === "user")?.id]);
   CHAT.stopGen = true;
   CHAT.roundStopped = true;
   CHAT.chatAbort?.abort();
@@ -4031,6 +4133,38 @@ async function sendChat(text, lang, force = null, files = null) {
   hfAfterTurn();
 }
 
+async function drainAfterReply(reader, decoder, buf, key, epoch) {
+  try {
+    for (;;) {
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        const ev = JSON.parse(line);
+        if (FEATURE_EVENTS[ev.type]) FEATURE_EVENTS[ev.type](ev, { key, epoch });
+      }
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+    }
+  } catch { /* la página cambió: no importa */ }
+}
+
+// Trabajos de ComfyUI de un turno (por el id del mensaje del usuario) que
+// siguen en marcha: se cancelan (en ComfyUI, /interrupt).
+function cancelTurnJobs(turnIds) {
+  const ids = new Set(turnIds.filter(Boolean));
+  for (const m of CHAT.messages) {
+    if (m.role !== "job" || !m.data || !ids.has(m.data.turn)) continue;
+    for (const it of cjobIters(m.data)) {
+      if (!CJOB_ACTIVE.includes(it.status)) continue;
+      api("POST", `/api/plugin/${m.data.plugin || "comfyui"}/cancel`, { id: it.id })
+        .then(() => cjobUpdate({ id: it.id, status: "cancelled" })).catch(() => {});
+    }
+  }
+}
+
 // Una respuesta de uno de los asistentes de la conversación. false si falló.
 // `cue`: "join" (acaba de entrar: saluda) o "leave" (se va: se despide).
 async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
@@ -4052,6 +4186,19 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
   const ctrl = new AbortController();
   CHAT.chatAbort = ctrl;
   CHAT.sayingNow = "";
+  // Frases propias: antes de una herramienta lenta y si tarda en contestar.
+  const phraseLang = spokenLang(lang);
+  phrasePool(key, phraseLang);
+  let announced = false;
+  const announce = (kind) => {
+    if (announced || speech || !voiceActive() || HF.queued || epoch !== CHAT.epoch) return;
+    const text = pickPhrase(key, phraseLang, kind);
+    if (!text) return;
+    announced = true;
+    CHAT.speaker = key;
+    CHAT.announce = speakText(text, phraseLang, ttsParamsFor(key, phraseLang));
+  };
+  const waitTimer = setTimeout(() => announce("wait"), 4500);
   let live = null; // el mensaje que se va escribiendo
   let speech = null; // la cola de voz de esta respuesta
   // En modo voz el texto aparece mientras se dice, no mientras se genera:
@@ -4116,9 +4263,10 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      if (buf === null) break;
       buf += decoder.decode(value, { stream: true });
       let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {
+      while (buf !== null && (nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
         if (!line) continue;
@@ -4126,10 +4274,8 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
         if (ev.type === "tool" && epoch === CHAT.epoch) {
           CHAT.messages.push({ role: "event", icon: toolIconName(ev.name), text: toolLabel(ev.name) });
           renderChatLog();
-          if (ev.name === "web_search" && voiceActive() && cfg.search_announcement) {
-            CHAT.speaker = key;
-            CHAT.announce = speakText(cfg.search_announcement, spokenLang(lang), ttsParamsFor(key, spokenLang(lang)));
-          }
+          const kind = toolPhraseKind(ev.name);
+          if (kind) announce(kind);
         } else if (ev.type === "places" && epoch === CHAT.epoch) {
           CHAT.messages.push({ role: "places", data: { categoria: ev.categoria, origin: ev.origin, places: ev.places, kind: ev.kind } });
           renderChatLog();
@@ -4170,12 +4316,18 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
           }
         } else if (ev.type === "silent") {
           silent = true;
+          // "Para" / "ya": también lo que había empezado a crear en el turno anterior.
+          const users = CHAT.history.filter((h) => h.role === "user");
+          cancelTurnJobs([users[users.length - 2]?.id]);
         } else if (FEATURE_EVENTS[ev.type]) {
           // Memoria, recordatorios, listas, resumen… (ver features.js)
           FEATURE_EVENTS[ev.type](ev, { key, epoch });
         } else if (ev.type === "reply") {
           reply = ev.text;
           replyLang = ev.lang || spokenLang(lang);
+          // Lo que queda (el resumen de lo viejo) llega de fondo.
+          drainAfterReply(reader, decoder, buf, key, epoch);
+          buf = null;
         } else if (ev.type === "error") {
           error = ev.message;
         }
@@ -4185,6 +4337,7 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
     if (ctrl.signal.aborted) interrupted = true;
     else error = e.message;
   }
+  clearTimeout(waitTimer);
   if (CHAT.chatAbort === ctrl) CHAT.chatAbort = null;
 
   if (epoch !== CHAT.epoch) return false;
@@ -4992,7 +5145,11 @@ function speechStream() {
   st.push = (text, lang, tts, reveal = null) => {
     const clean = speakable(text, lang);
     if (!clean || gen !== CHAT.speakGen) return;
-    st.items.push({ url: ttsUrl(clean, tts).catch((e) => { toast(e.message, "error"); return null; }), text, reveal });
+    // De una en una y en orden: con varias a la vez la primera podía
+    // salir de última (Qwen atiende una sola) y la voz tardaba en empezar.
+    st.chain = (st.chain || Promise.resolve()).then(() => (gen === CHAT.speakGen ? ttsUrl(clean, tts) : null))
+      .catch((e) => { toast(e.message, "error"); return null; });
+    st.items.push({ url: st.chain, text, reveal });
     st.wake?.();
   };
   st.close = () => {
@@ -5358,7 +5515,7 @@ async function waitTurn(conv) {
   let confirmed = null;
   while (conv.active && (CHAT.busy || CHAT.speaking)) {
     await new Promise((r) => setTimeout(r, BARGE.every));
-    if (!CHAT.speaking || CHAT.micMuted || !conv.analyser || conv.hf) {
+    if (!(CHAT.speaking || CHAT.busy) || CHAT.micMuted || !conv.analyser || conv.hf) {
       start = 0;
       ratios = [];
       echo = null;
@@ -5911,6 +6068,7 @@ const ACTIONS = {
   },
   "lang-es-en": () => setLanguages(["es", "en"]),
   "reset-behavior": resetBehavior,
+  "regen-phrases": regenPhrases,
   "exclude-all": () => excludeWords($$("[data-exclude]").map((b) => b.dataset.exclude)),
   "capture-key": startKeyCapture,
   "cancel-capture": cancelKeyCapture,
@@ -5923,6 +6081,7 @@ function bindMain() {
   const main = $("#main");
   main.oninput = (e) => {
     if (e.target.dataset.field) onFieldInput(e.target);
+    else if (e.target.dataset.phMode || e.target.dataset.phFixed) onPhraseInput(e.target);
     else if (e.target.id === "color-custom") setColor(e.target.value);
   };
   main.onchange = (e) => {

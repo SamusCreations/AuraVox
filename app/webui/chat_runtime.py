@@ -40,6 +40,7 @@ from app.core.assistant_common import (
     unload_ollama_model,
 )
 from app.webui.server_log import log
+from app.core import phrases
 
 PREVIEWS_DIR = paths.VOICE_PREVIEWS_DIR
 CUSTOM_PREVIEWS_DIR = paths.CUSTOM_VOICE_PREVIEWS_DIR
@@ -636,7 +637,7 @@ def chat(cfg: dict, shared_context: str, history: list, reply_lang: str, on_tool
         tools,
         logged_call_tool,
         max_tool_rounds=cfg["max_tool_rounds"],
-        fallback_message=cfg["fallback_message"],
+        fallback_message=phrases.pick(cfg, reply_lang or cfg.get("language") or "es", "fallback", log),
         on_tool_call=on_tool_call,
         reply_lang=reply_lang,
         shared_context=shared_context,

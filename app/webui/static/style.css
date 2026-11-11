@@ -2034,3 +2034,12 @@ a.icon-btn { text-decoration: none; }
   .mm-row { padding: 10px; }
 }
 .send-btn.stop { background: var(--danger); color: #fff; }
+/* Frases propias (Comportamiento) */
+.phrases-box { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; min-width: 0; }
+.phrases-box h3 { margin: 0; font-size: 15px; }
+.ph-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.ph-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ph-head select { width: auto; max-width: 100%; }
+.ph-row textarea { min-height: 70px; }
+.ph-preview { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--muted); }
+.ph-preview .chip { font-size: 12px; }

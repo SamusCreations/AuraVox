@@ -44,10 +44,31 @@ KNOWN_FIELDS = {
     "label", "base_model", "voice", "speed", "language", "languages", "temperature",
     "top_k", "top_p", "max_history", "max_tool_rounds", "search_announcement",
     "fallback_message", "personality", "wake_word", "push_to_talk_key", "color", "think_pause",
-    "owner", "shared", "expressiveness",
+    "owner", "shared", "expressiveness", "phrases",
 }
 EXPRESSIVENESS_LEVELS = ("none", "some", "lots")
 DEFAULT_EXPRESSIVENESS = "lots"
+
+
+def _phrases(value, legacy_search=None, legacy_fallback=None) -> dict:
+    """{kind: {"mode": "auto"|"fixed", "fixed": [...]}} (ver app/core/phrases.py).
+    Sin `phrases` (asistentes de antes), las frases propias de
+    search_announcement / fallback_message pasan a su lista fija."""
+    from app.core import phrases as ph
+
+    raw = value if isinstance(value, dict) else {}
+    out = {}
+    for kind in ph.KINDS:
+        s = raw.get(kind) if isinstance(raw.get(kind), dict) else {}
+        mode = s.get("mode") if s.get("mode") in ph.MODES else "auto"
+        fixed = ph.clean_list(s.get("fixed"))
+        if not isinstance(value, dict):
+            legacy = {"search": legacy_search, "fallback": legacy_fallback}.get(kind)
+            legacy = _clean_line(legacy)
+            if legacy and legacy != _TEXT_DEFAULTS.get(f"{kind}_announcement" if kind == "search" else "fallback_message"):
+                fixed = [legacy]
+        out[kind] = {"mode": mode, "fixed": fixed}
+    return out
 
 
 def _expressiveness(value) -> str:
@@ -138,6 +159,7 @@ def assistant_view(name: str, section) -> dict:
         "push_to_talk_key": normalize_key(s.get("push_to_talk_key")),
         "color": _color(s.get("color")),
         "expressiveness": _expressiveness(s.get("expressiveness")),
+        "phrases": _phrases(s.get("phrases"), s.get("search_announcement"), s.get("fallback_message")),
         "owner": _owner(s.get("owner")),
         "shared": parse_bool(s.get("shared"), True),
     }
@@ -202,6 +224,7 @@ def validate_assistant(data: dict, taken_names: set, languages: list, taken_keys
         errors["base_model"] = tr("model_invalid")
     out["base_model"] = base_model
     out["expressiveness"] = _expressiveness(data.get("expressiveness"))
+    out["phrases"] = _phrases(data.get("phrases"), data.get("search_announcement"), data.get("fallback_message"))
 
     voice = normalize_voice(_clean_line(data.get("voice")))
     if not is_valid_voice(voice):
@@ -356,6 +379,10 @@ def _emit_assistant(a: dict) -> list:
         lines.append(f"  owner: {_q(a['owner'])}")
     lines.append(f"  shared: {'true' if a.get('shared', True) else 'false'}")
     lines.append(f"  expressiveness: {_expressiveness(a.get('expressiveness'))}")
+    # Un objeto JSON es un mapeo YAML válido (en una línea por tipo).
+    phrases = a.get("phrases") or _phrases(None)
+    lines.append("  phrases:")
+    lines += [f"    {kind}: {json.dumps(phrases[kind], ensure_ascii=False)}" for kind in phrases]
     lines += [
         f"  voice: {a['voice']}",
         f"  speed: {_num(a['speed'])}",

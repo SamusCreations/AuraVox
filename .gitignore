@@ -29,6 +29,7 @@ config/secrets.json
 config/chats/
 config/comfyui/
 config/custom_voices/
+config/phrases/
 config/memory/
 config/lists/
 config/routines/

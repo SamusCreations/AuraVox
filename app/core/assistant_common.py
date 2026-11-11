@@ -432,7 +432,8 @@ def _realtime_ctx() -> str:
         "If you're asked the time, give ONLY the time, in 12-hour format with a.m./p.m. written the way it's "
         "usual in the reply language (e.g. «son las 7:19 p. m.»), without adding the date or the day unless "
         "they're asked too. If you're asked the date or the day, give the date. You don't need to search the "
-        "internet for this."
+        "internet for this. Don't mention the time or the date when nobody asked for them (a greeting is not "
+        "asking for the time)."
     )
 
 
