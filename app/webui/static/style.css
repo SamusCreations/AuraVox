@@ -2043,3 +2043,14 @@ a.icon-btn { text-decoration: none; }
 .ph-row textarea { min-height: 70px; }
 .ph-preview { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--muted); }
 .ph-preview .chip { font-size: 12px; }
+/* Modo voz: la palabra que está diciendo, resaltada; el resto, tenue */
+.cap.karaoke .k-done { color: var(--muted); opacity: .75; }
+.cap.karaoke .k-ahead { color: var(--muted); opacity: .6; }
+.cap.karaoke .k-now { color: var(--text); background: var(--accent-soft); border-radius: 4px; box-shadow: 0 0 0 2px var(--accent-soft); transition: background-color .12s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .cap.karaoke .k-now { transition: none; }
+  .voice-captions .cap.assistant.karaoke { animation: none; }
+}
+@media (forced-colors: active) {
+  .cap.karaoke .k-now { background: Highlight; color: HighlightText; }
+}

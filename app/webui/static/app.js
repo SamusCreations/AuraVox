@@ -3279,9 +3279,15 @@ function paintLive(msg) {
       const caps = log.querySelectorAll(".cap.assistant");
       const cap = caps[caps.length - 1];
       if (!cap || participants().length > 1) return renderCaptions(log);
-      // A medio decir, sin el punto que speakable agrega al final.
-      const said = speakable(msg.text);
-      cap.textContent = msg.streaming && !/[.!?…:;,]\s*$/.test(msg.text) ? said.replace(/\.$/, "") : said;
+      if (msg.streaming && msg.karaoke) {
+        cap.classList.add("karaoke");
+        cap.innerHTML = karaokeHtml(msg.karaoke);
+      } else {
+        cap.classList.remove("karaoke");
+        // A medio decir, sin el punto que speakable agrega al final.
+        const said = speakable(msg.text);
+        cap.textContent = msg.streaming && !/[.!?…:;,]\s*$/.test(msg.text) ? said.replace(/\.$/, "") : said;
+      }
       log.scrollTop = log.scrollHeight;
       return;
     }
@@ -3294,6 +3300,11 @@ function paintLive(msg) {
 
 // En modo voz, debajo del aro: lo último que dijiste y lo último que
 // respondió (más avisos y errores), como subtítulos.
+// Texto en vivo del modo voz: lo dicho, la palabra que suena y lo que falta de la frase.
+function karaokeHtml(k) {
+  return `<span class="k-done">${esc(k.done)}</span><span class="k-now">${esc(k.now)}</span><span class="k-ahead">${esc(k.ahead)}</span>`;
+}
+
 function renderCaptions(box) {
   const msgs = CHAT.messages;
   let lastUser = -1;
@@ -3311,6 +3322,7 @@ function renderCaptions(box) {
       const ev = eventIcon(m);
       return `<p class="cap event">${ev.html}${esc(ev.text)}</p>`;
     }
+    if (m.role === "assistant" && m.streaming && m.karaoke) return `<p class="cap assistant karaoke">${who}${karaokeHtml(m.karaoke)}</p>`;
     const text = m.role === "assistant" ? speakable(m.text) : m.text;
     return `<p class="cap ${m.role}">${who}${esc(text)}${lang}</p>`;
   }).join("");
@@ -4220,13 +4232,20 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
     const base = spoken ? `${spoken} ` : "";
     if (finished) {
       spoken = base + sentence;
+      if (live) live.karaoke = null;
       showSpoken(spoken);
       return;
     }
-    // Por caracteres (lo que dura cada palabra), sin cortar palabras.
+    // Por caracteres (lo que dura cada palabra), sin cortar palabras. La
+    // palabra que suena se resalta; lo dicho y lo que falta de la frase, tenue.
     const upto = Math.ceil(sentence.length * Math.min(progress, 1));
     const space = sentence.indexOf(" ", upto);
-    showSpoken(base + (space < 0 ? sentence : sentence.slice(0, space)));
+    const end = space < 0 ? sentence.length : space;
+    const start = sentence.lastIndexOf(" ", Math.max(0, end - 1)) + 1;
+    const karaoke = { done: base + sentence.slice(0, start), now: sentence.slice(start, end), ahead: sentence.slice(end) };
+    if (!live) showSpoken(base + sentence.slice(0, end));
+    live.karaoke = karaoke;
+    showSpoken(base + sentence.slice(0, end));
   };
   const dropLive = () => {
     if (live) CHAT.messages.splice(CHAT.messages.indexOf(live), 1);
@@ -4379,6 +4398,7 @@ async function askAssistant(key, lang, group, epoch, round = null, cue = null) {
     await speech.done;
     if (epoch !== CHAT.epoch) return false;
     const heardText = speech.halted ? (live?.text.trim() || "") : reply;
+    if (live) live.karaoke = null;
     if (heardText) {
       const shown = live || { role: "assistant", speaker: key };
       Object.assign(shown, { text: heardText, lang: replyLang, tts });
