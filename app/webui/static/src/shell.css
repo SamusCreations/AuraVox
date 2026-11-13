@@ -175,7 +175,7 @@ body.locked { --top-h: 56px; }
 /* ── Escritorio: barra lateral fija ── */
 @media (min-width: 1024px) {
   .sidebar {
-    position: sticky; top: 0; inset: auto; height: 100vh; height: 100dvh; width: var(--nav-w); flex: none;
+    position: sticky; inset: 0 auto auto 0; height: 100vh; height: 100dvh; width: var(--nav-w); flex: none;
     transform: none; visibility: visible; box-shadow: none;
     background: color-mix(in srgb, var(--sidebar) 80%, transparent);
     transition: margin-left .28s cubic-bezier(.2, .8, .2, 1), visibility 0s;
