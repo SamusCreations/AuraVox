@@ -1,0 +1,94 @@
+/* ── Ajuste al ancho real de la pantalla (mobile first) ──────────────────
+   Va al final: corrige reglas anteriores para que ningún contenedor sea
+   más ancho que la pantalla. En Chrome para Android, si algo se sale por
+   la derecha, el navegador aleja toda la página y los elementos fijos
+   (barra superior, visor) quedan a 2/3 del ancho. */
+
+/* Nada puede ensanchar la página */
+html, body { max-width: 100%; overflow-x: clip; }
+.app-shell, .app-col, .main { min-width: 0; max-width: 100%; }
+.app-col, .main { overflow-x: clip; }
+.main > * { min-width: 0; max-width: 100%; }
+img, video, canvas, iframe { max-width: 100%; }
+
+/* Columnas de grid que se encogen (1fr solo no baja del contenido más ancho) */
+.gallery-grid { grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }
+.model-list { grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }
+.lang-grid { grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); }
+.radio-cards, .cu-tasks { grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); }
+.login-grid { grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr)); }
+.li-grid { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.media-lib-grid { grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); }
+.dash-panels { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); }
+.info dl, .pf-roles { grid-template-columns: max-content minmax(0, 1fr); }
+
+/* Hijos de grid/flex: que puedan ser más angostos que su contenido */
+.card, .dash-panel, .dash-kpi, .dash-hero, .dash-hero-text, .dash-split-block,
+.dash-media-strip, .dash-recent-files, .dash-asst-list, .dash-asst-row,
+.media-card, .file-lib-card, .li-card, .g-card, .field, .cfg-content,
+.cfg-section, .lib-view, .lib-head, .home-dashboard, .settings-shell { min-width: 0; }
+
+/* Miniaturas del panel: la imagen o el video no dan ancho a la casilla */
+.dash-media-thumb { min-width: 0; width: 100%; }
+.dash-media-thumb img, .dash-media-thumb video { position: absolute; inset: 0; }
+
+/* Textos largos (nombres de archivo, rutas, prompts) cortan en vez de empujar */
+.dash-asst-head, .dash-mini-head { min-width: 0; flex-wrap: wrap; }
+.dash-asst-head strong, .dash-asst-head code, .dash-kpi-sub, .dash-kpi-meta,
+.dash-hero h1, .dash-hero p, .lib-head-text h1, .editor-head h1, .editor-head p { overflow-wrap: anywhere; min-width: 0; }
+.head-text { min-width: 0; }
+
+@media (max-width: 1020px) {
+  .dash-panels { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .dash-kpis { grid-template-columns: minmax(0, 1fr); }
+  .grid-2, .grid-3, .voice-groups { grid-template-columns: minmax(0, 1fr); }
+}
+/* Pantallas muy angostas: botones y etiquetas que bajan de línea */
+@media (max-width: 400px) {
+  .dash-hero-actions, .lib-head, .card-head, .place-row { flex-wrap: wrap; }
+  .dash-hero-actions > .btn { flex: 1 1 auto; justify-content: center; }
+  .btn, .badge, .dash-badge, .asst-cat-btn { max-width: 100%; white-space: normal; }
+  .note { overflow-wrap: anywhere; }
+}
+
+/* ── Visor de imágenes/videos: la imagen entera, sin que nada la tape ──
+   Columna: barra de arriba · imagen (lo que sobra) · datos abajo. La
+   imagen ocupa todo su espacio y se ajusta adentro con object-fit
+   (barras negras a los lados si hace falta). */
+.img-viewer {
+  position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none;
+  background: #000; overflow: hidden;
+}
+.img-viewer[open] { display: flex; flex-direction: column; }
+.iv-bar, .iv-meta-bar { flex: none; position: relative; z-index: 1; }
+.iv-bar { padding-top: max(8px, env(safe-area-inset-top, 0px)); background: rgb(0 0 0 / .7); }
+.iv-meta-bar { padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+.iv-stage { position: relative; flex: 1 1 0; min-height: 0; min-width: 0; display: block; }
+.iv-stage img, .iv-stage.video video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  max-width: none; max-height: none; object-fit: contain;
+}
+@media (max-width: 640px) {
+  /* Barra de arriba en una sola fila: el nombre se corta con … */
+  .iv-bar { flex-wrap: nowrap; gap: 4px; padding-left: 8px; padding-right: 6px; }
+  .iv-bar strong { flex: 1 1 auto; font-size: 13px; }
+  .iv-bar .spacer { display: none; }
+  .iv-bar .btn-quiet.iv-pct { display: none; }
+  .iv-bar .btn-sm { padding: 6px 10px; }
+  .iv-bar .icon-btn { width: 36px; height: 36px; flex: none; }
+  /* Datos abajo: botones en una fila y los datos debajo, compactos */
+  .iv-meta-bar { font-size: 12px; gap: 6px; padding-top: 6px; }
+  .iv-nav-btns { order: -1; flex: 1 1 100%; flex-wrap: nowrap; justify-content: center; gap: 4px; }
+  .iv-meta-info { flex: 1 1 100%; gap: 4px 8px; }
+  .iv-meta-info > span { white-space: nowrap; }
+}
+
+/* Palabras sin espacios (nombres de archivo, rutas) bajan de línea dentro de tarjetas */
+.card, .dash-panel, .dash-kpi, .media-card, .file-lib-card, .li-card, .g-card { overflow-wrap: anywhere; }
+
+/* Cabecera del chat: el nombre se corta antes que empujar los botones */
+.stage-head { min-width: 0; }
+.stage-head .who, .stage-head .who > div { min-width: 0; }
+@media (max-width: 340px) { .stage-head { gap: 4px; padding-left: 8px; padding-right: 8px; } }

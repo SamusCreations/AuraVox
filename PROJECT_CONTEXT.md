@@ -99,7 +99,7 @@ AuraVox\
 │       └── static\
 │           ├── index.html       SPA shell: sidebar (#sidebar: nav, one conversation per assistant, mic, Ollama status, theme, language, profile), mobile topbar, <main>, console, modals
 │           ├── style.css        COMPILED stylesheet (Tailwind CSS v4 output of src/, committed; never edit by hand)
-│           ├── src/             Stylesheet sources: tailwind.css (entry), tokens.css (light/dark design tokens + base), components.css (component styles), aura.css ("Aura" redesign layer), shell.css (sidebar/topbar layout)
+│           ├── src/             Stylesheet sources: tailwind.css (entry), tokens.css (light/dark design tokens + base), components.css (component styles), aura.css ("Aura" redesign layer), shell.css (sidebar/topbar layout), mobile.css (loaded last: keeps every container within the real screen width on phones, and the image viewer layout)
 │           ├── icons.js         Inline SVG icon catalog (`svgIcon`, `ICON_CHAT`)
 │           ├── i18n.js          Bilingual frontend translations (`STRINGS.es` and `STRINGS.en`)
 │           ├── app.js           Core SPA logic: router, gallery, categorized settings, security/PIN, text/voice chat, orb, maps, profiles
