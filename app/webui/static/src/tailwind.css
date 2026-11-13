@@ -1,0 +1,42 @@
+/* Hoja de estilos de AuraVox (fuente). Se compila a ../style.css con el
+   ejecutable de Tailwind CSS (no hace falta Node): extras\build-css.bat
+   Sin el reset de Tailwind (preflight): la app genera mucho marcado desde
+   app.js y features.js que cuenta con los estilos normales del navegador. */
+
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+/* Dónde buscar las clases de Tailwind que se usan */
+@source "../index.html";
+@source "../app.js";
+@source "../features.js";
+
+/* dark: = <html data-theme="dark"> (lo elige el usuario o el sistema) */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Colores y tipografía de Tailwind = tokens de la app (tokens.css) */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--panel);
+  --color-surface-2: var(--panel-2);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --color-warn: var(--warn);
+  --color-ok: var(--ok);
+  --font-sans: var(--font);
+  --font-mono: var(--mono);
+}
+
+@import "./tokens.css" layer(base);
+@import "./components.css" layer(components);
+@import "./aura.css" layer(components);
+@import "./shell.css" layer(components);

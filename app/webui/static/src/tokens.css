@@ -1,0 +1,116 @@
+/* ── Tokens de diseño "Aura" ──────────────────────────────────────────────
+   Un solo juego de variables para toda la app. El tema lo decide
+   <html data-theme="light|dark"> (lo pone el script del <head> según la
+   preferencia guardada o la del sistema). Los colores de Tailwind
+   (bg-surface, text-muted, border-line…) apuntan a estas mismas variables. */
+
+:root {
+  /* Claro */
+  --bg: #f6f7fb;
+  --sidebar: #eff1f7;
+  --panel: #ffffff;
+  --panel-2: #f3f4f9;
+  --border: #e3e5ee;
+  --border-strong: #cfd3e1;
+  --text: #0e1120;
+  --muted: #5a6079;
+  --faint: #8a90a8;
+  --accent: #6a55f5;
+  --accent-hover: #5a44ea;
+  --accent-soft: #eeebff;
+  --accent-text: #ffffff;
+  --accent-2: #0891b2;
+  --danger: #d92d4a;
+  --danger-soft: #fde8ec;
+  --warn: #a86400;
+  --warn-soft: #fdf1db;
+  --ok: #15803d;
+  --ok-soft: #e3f6ea;
+  --female: #c03f86;
+  --female-soft: #fbe7f2;
+  --male: #3b63c4;
+  --male-soft: #e6edfb;
+  --glass: rgb(255 255 255 / .72);
+  --glow: 0 0 0 1px rgb(106 85 245 / .18), 0 8px 30px -6px rgb(106 85 245 / .35);
+  --shadow: 0 1px 2px rgb(16 18 40 / .05), 0 6px 20px -8px rgb(16 18 40 / .12);
+  --shadow-lg: 0 24px 60px -12px rgb(16 18 40 / .28);
+  --aurora-opacity: .5;
+
+  --radius: 18px;
+  --radius-sm: 11px;
+  --font: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", monospace;
+  --panel-w: 480px;
+  --console-h: 260px;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #07080d;
+  --sidebar: #0b0c13;
+  --panel: #10121b;
+  --panel-2: #161926;
+  --border: #1f2333;
+  --border-strong: #2d3247;
+  --text: #eceef6;
+  --muted: #9aa0b8;
+  --faint: #646a82;
+  --accent: #8b7bff;
+  --accent-hover: #a194ff;
+  --accent-soft: #1d1a3f;
+  --accent-text: #ffffff;
+  --accent-2: #22d3ee;
+  --danger: #ff6b7d;
+  --danger-soft: #3a1621;
+  --warn: #f5b754;
+  --warn-soft: #34260f;
+  --ok: #4ade80;
+  --ok-soft: #0f2e1c;
+  --female: #f08bc4;
+  --female-soft: #3a1a2e;
+  --male: #8fb0ff;
+  --male-soft: #18233f;
+  --glass: rgb(16 18 27 / .66);
+  --glow: 0 0 0 1px rgb(139 123 255 / .28), 0 10px 36px -8px rgb(139 123 255 / .45);
+  --shadow: 0 1px 0 rgb(255 255 255 / .03) inset, 0 8px 24px -10px rgb(0 0 0 / .6);
+  --shadow-lg: 0 30px 80px -20px rgb(0 0 0 / .75);
+  --aurora-opacity: .9;
+  color-scheme: dark;
+}
+
+/* ── Base (sin el reset de Tailwind: el marcado que generan app.js y
+   features.js cuenta con los márgenes normales del navegador) ── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+body {
+  font: 14px/1.55 var(--font);
+  font-feature-settings: "cv11", "ss01";
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+h1, h2, h3 { letter-spacing: -.02em; }
+code { font-family: var(--mono); font-size: .92em; }
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+img, video { max-width: 100%; }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Fondo "aurora": tres manchas de color muy difuminadas detrás de todo. */
+.aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: var(--aurora-opacity); }
+.aurora i {
+  position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(90px);
+  opacity: .16; will-change: transform;
+}
+.aurora i:nth-child(1) { background: #7c5cff; top: -30vmax; left: -10vmax; animation: aurora-a 26s ease-in-out infinite alternate; }
+.aurora i:nth-child(2) { background: #06b6d4; top: -25vmax; right: -25vmax; opacity: .10; animation: aurora-b 32s ease-in-out infinite alternate; }
+.aurora i:nth-child(3) { background: #ec4899; bottom: -40vmax; left: 30vw; opacity: .07; animation: aurora-c 38s ease-in-out infinite alternate; }
+@keyframes aurora-a { to { transform: translate(18vw, 10vh) scale(1.1); } }
+@keyframes aurora-b { to { transform: translate(-14vw, 16vh) scale(.92); } }
+@keyframes aurora-c { to { transform: translate(-20vw, -8vh) scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .aurora i { animation: none; } }

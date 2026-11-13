@@ -1,0 +1,192 @@
+/* ── Estructura de la app: barra lateral + columna principal ─────────────
+   Mobile first: en el celular la barra lateral es un cajón que se abre con
+   el botón ☰ de la barra superior (o de la cabecera del chat). Desde 1024 px
+   queda fija a la izquierda y se puede plegar (html.nav-collapsed). */
+
+:root { --nav-w: 272px; --top-h: 56px; }
+
+.app-shell { position: relative; z-index: 1; display: flex; min-height: 100vh; min-height: 100dvh; }
+.app-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* ── Barra lateral ── */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0; z-index: 45; width: min(86vw, 300px);
+  display: flex; flex-direction: column; min-height: 0;
+  background: color-mix(in srgb, var(--sidebar) 94%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-102%); visibility: hidden;
+  transition: transform .28s cubic-bezier(.2, .8, .2, 1), visibility 0s .28s;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+body.nav-open .sidebar { transform: none; visibility: visible; transition: transform .28s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
+.sb-backdrop {
+  position: fixed; inset: 0; z-index: 44; background: rgb(5 6 12 / .5);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none; transition: opacity .25s;
+}
+body.nav-open .sb-backdrop { opacity: 1; pointer-events: auto; }
+
+.brand {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 8px 4px 4px;
+  border: none; background: none; cursor: pointer; border-radius: 12px; text-align: left; color: var(--text);
+}
+.brand:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.brand-mark { width: 30px; height: 30px; flex: none; border-radius: 9px; overflow: hidden; box-shadow: 0 0 18px -2px rgb(139 123 255 / .55); }
+.brand-mark img { width: 30px; height: 30px; display: block; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.brand-text strong {
+  font-size: 15.5px; font-weight: 700; letter-spacing: -.01em;
+  background: linear-gradient(92deg, #a78bfa, #60a5fa 55%, #f472b6); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.brand-text span { color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sb-new {
+  position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 42px; padding: 0 12px;
+  border-radius: 12px; border: 1px solid var(--border-strong); background: var(--panel);
+  color: var(--text); font-weight: 600; cursor: pointer; box-shadow: var(--shadow);
+  transition: border-color .15s, box-shadow .2s, transform .12s;
+}
+.sb-new svg { width: 22px; height: 22px; padding: 3px; border-radius: 7px; color: #fff; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+.sb-new:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border-strong)); box-shadow: var(--glow); }
+.sb-new:active { transform: scale(.98); }
+.sb-new.active { border-color: var(--accent); }
+
+.sb-nav { display: flex; flex-direction: column; gap: 1px; padding: 6px 10px 4px; }
+.nav-item {
+  position: relative; display: flex; align-items: center; gap: 11px; width: 100%; min-height: 38px; padding: 7px 10px;
+  border: none; border-radius: 10px; background: none; color: var(--muted); font-weight: 550; font-size: 13.5px;
+  text-align: left; cursor: pointer;
+}
+.nav-item > svg, .nav-item .mic-icon { flex: none; opacity: .9; }
+.nav-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+.nav-item.active { background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--text); }
+.nav-item.active::before {
+  content: ""; position: absolute; left: -10px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0;
+  background: linear-gradient(var(--accent), var(--accent-2));
+}
+.nav-item.active > svg { color: var(--accent); opacity: 1; }
+.nav-item .top-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sb-label {
+  padding: 14px 20px 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint);
+}
+.sb-chats { flex: 1; min-height: 60px; overflow-y: auto; padding: 0 10px 10px; display: flex; flex-direction: column; gap: 1px; }
+.sb-empty { margin: 4px 10px; font-size: 12.5px; color: var(--faint); }
+.sb-chat { position: relative; display: flex; align-items: center; border-radius: 10px; }
+.sb-chat:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.sb-chat.active { background: color-mix(in srgb, hsl(var(--hue, 262) var(--sat, 88%) 60%) 14%, transparent); }
+.sb-chat-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: none; background: none;
+  color: var(--text); text-align: left; cursor: pointer; border-radius: 10px;
+}
+.sb-chat-open .orb-avatar { width: 26px; height: 26px; font-size: 11.5px; box-shadow: 0 0 12px -2px hsl(var(--hue, 262) var(--sat, 88%) 55% / .55); }
+.sb-chat-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.sb-chat-name { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-chat-text small { font: 11px var(--mono); color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-chat-voice {
+  flex: none; width: 30px; height: 30px; margin-right: 4px; display: grid; place-items: center; border: none; border-radius: 8px;
+  background: none; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity .15s, background .15s, color .15s;
+}
+.sb-chat:hover .sb-chat-voice, .sb-chat-voice:focus-visible, .sb-chat.active .sb-chat-voice { opacity: 1; }
+.sb-chat-voice:hover { background: color-mix(in srgb, hsl(var(--hue, 262) var(--sat, 88%) 60%) 20%, transparent); color: var(--text); }
+@media (pointer: coarse) { .sb-chat-voice { opacity: 1; } }
+
+.sb-foot {
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+}
+.sb-foot .status { padding: 0 10px; margin: 0; }
+.sb-prefs { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 4px; }
+
+.status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
+.status .status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.status.online .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent), 0 0 10px var(--ok); }
+.status.offline .dot { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent); }
+
+/* Interruptores de tema e idioma */
+.theme-switch, .lang-switch {
+  display: inline-flex; flex: none; padding: 3px; gap: 2px; border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 5%, transparent); border: 1px solid var(--border);
+}
+.theme-switch button, .lang-switch button {
+  display: grid; place-items: center; min-width: 30px; height: 26px; padding: 0 8px; border: none; border-radius: 999px;
+  background: none; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 600; letter-spacing: .02em;
+}
+.theme-switch button:hover, .lang-switch button:hover { color: var(--text); }
+.theme-switch button.active, .lang-switch button.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
+
+/* Perfil (abajo de la barra): el menú se abre hacia arriba */
+.profile-menu { width: 100%; }
+.profile-menu > summary.profile-btn {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: 12px;
+  border: 1px solid transparent; color: var(--text); font-weight: 600;
+}
+.profile-menu > summary.profile-btn:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.profile-menu[open] > summary.profile-btn { background: color-mix(in srgb, var(--text) 6%, transparent); border-color: var(--border); }
+.profile-menu .profile-btn .avatar { width: 30px; height: 30px; font-size: 13px; }
+.profile-menu .profile-btn .top-label { display: inline; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .profile-menu .menu-pop { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; min-width: 0; max-width: none; transform-origin: bottom center; }
+
+/* Micrófono de manos libres dentro de la barra */
+.nav-item.mic-btn .mic-icon { display: inline-flex; width: 18px; justify-content: center; }
+.nav-item.mic-btn .mic-dot { left: 24px; top: 8px; }
+.nav-item.mic-btn[data-state="muted"] { background: var(--danger-soft); color: var(--danger); }
+
+/* ── Barra superior (celular, o escritorio con la barra plegada) ── */
+.topbar {
+  position: sticky; top: 0; z-index: 30; height: var(--top-h); flex: none;
+  display: flex; align-items: center; gap: 8px; padding: 0 10px; padding-top: env(safe-area-inset-top, 0px);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.topbar .spacer { flex: 1; }
+.top-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.top-brand img { border-radius: 8px; }
+.crumb { display: flex; align-items: center; min-width: 0; font-weight: 600; font-size: 15px; }
+.crumb .here { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Con una vista abierta se ve su título; en el inicio, la marca. */
+.topbar:has(.crumb .here) .top-brand { display: none; }
+.locked-only { display: none !important; }
+
+/* ── Contenido ── */
+.main { position: relative; min-width: 0; flex: 1; padding: 20px 16px calc(110px + env(safe-area-inset-bottom, 0px)); outline: none; }
+.main[data-view="assistant"], .main[data-view="new"] {
+  flex: none; padding: 0; overflow: hidden;
+  height: calc(100vh - var(--top-h)); height: calc(100dvh - var(--top-h));
+}
+.loading { color: var(--muted); padding: 40px; }
+
+/* Dentro de un asistente (celular): sin barra superior, la cabecera del chat
+   ya trae el ☰. */
+body:has(.main[data-view="assistant"]), body:has(.main[data-view="new"]) { --top-h: 0px; }
+body:has(.main[data-view="assistant"]) .topbar, body:has(.main[data-view="new"]) .topbar { display: none; }
+
+/* ── Pantalla de entrada (perfiles): sin barra lateral ── */
+body.locked .sidebar, body.locked .sb-backdrop, body.locked .nav-open-btn, body.locked .crumb { display: none !important; }
+body.locked .topbar { display: flex !important; }
+body.locked .top-brand { display: inline-flex !important; }
+body.locked .locked-only { display: inline-flex !important; }
+body.locked { --top-h: 56px; }
+
+/* ── Escritorio: barra lateral fija ── */
+@media (min-width: 1024px) {
+  .sidebar {
+    position: sticky; top: 0; inset: auto; height: 100vh; height: 100dvh; width: var(--nav-w); flex: none;
+    transform: none; visibility: visible; box-shadow: none;
+    background: color-mix(in srgb, var(--sidebar) 80%, transparent);
+    transition: margin-left .28s cubic-bezier(.2, .8, .2, 1), visibility 0s;
+  }
+  .sb-backdrop { display: none; }
+  html.nav-collapsed .sidebar { margin-left: calc(-1 * var(--nav-w)); visibility: hidden; transition: margin-left .28s cubic-bezier(.2, .8, .2, 1), visibility 0s .28s; }
+  /* Sin barra superior mientras la lateral está a la vista */
+  html:not(.nav-collapsed) body:not(.locked) { --top-h: 0px; }
+  html:not(.nav-collapsed) body:not(.locked) .topbar { display: none; }
+  html:not(.nav-collapsed) .stage-head .nav-open-btn { display: none; }
+  .main { padding: 36px clamp(24px, 4vw, 48px) 120px; }
+  body.console-open .console { left: var(--nav-w); }
+  html.nav-collapsed body.console-open .console { left: 0; }
+}

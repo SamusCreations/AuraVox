@@ -1,67 +1,138 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>AuraVox</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
   <link rel="manifest" href="/static/manifest.webmanifest">
-  <meta name="theme-color" content="#0b0a16">
+  <meta name="theme-color" content="#07080d">
+  <meta name="color-scheme" content="dark light">
   <meta name="application-name" content="AuraVox">
   <meta name="apple-mobile-web-app-title" content="AuraVox">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="apple-touch-icon" href="/static/icon.svg">
-
+  <script>
+    /* Tema (sistema / claro / oscuro) y barra lateral plegada, antes de pintar: sin destello. */
+    (function () {
+      var r = document.documentElement, p = "system";
+      try { p = localStorage.getItem("ui-theme") || "system"; } catch (e) {}
+      var dark = p === "dark" || (p !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      r.dataset.theme = dark ? "dark" : "light";
+      r.dataset.themePref = p;
+      try { if (localStorage.getItem("nav-collapsed") === "1") r.classList.add("nav-collapsed"); } catch (e) {}
+    })();
+  </script>
+  <!-- Generado con Tailwind CSS desde src/tailwind.css (ver extras\build-css.bat) -->
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="topbar">
-    <button class="brand" id="btn-home" type="button" data-i18n-aria="nav.gallery">
-      <span class="brand-mark" aria-hidden="true">
-        <img src="/static/icon.svg" width="32" height="32" alt="">
-      </span>
-      <span class="brand-text"><strong data-i18n="app.brand">AuraVox</strong><span data-i18n="brand.sub"></span></span>
-    </button>
-    <span class="crumb" id="crumb"></span>
-    <span class="spacer"></span>
-    <div id="ollama-status" class="status"><span class="dot"></span><span class="status-text" data-i18n="status.connecting"></span></div>
-    <button class="top-btn mic-btn" id="btn-mic" type="button" data-state="browser" aria-pressed="false">
-      <span class="mic-icon" aria-hidden="true"></span><span class="mic-dot" aria-hidden="true"></span>
-      <span class="top-label"></span>
-    </button>
-    <details class="menu profile-menu" id="profile-menu" hidden></details>
-    <button class="top-btn" id="btn-lists" type="button">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.5 6l1.2 1.2L7 4.8M3.5 12l1.2 1.2L7 10.8M3.5 18l1.2 1.2L7 16.8" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="top-label" data-i18n="nav.lists"></span>
-    </button>
-    <button class="top-btn" id="btn-shared" type="button">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2.2" fill="none" stroke="currentColor" stroke-width="2"/></svg>
-      <span class="top-label" data-i18n="nav.shared"></span>
-    </button>
-    <button class="top-btn" id="btn-console" type="button" title="Ctrl+`">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7 9l3 3-3 3M12 15h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span class="top-label" data-i18n="nav.console"></span>
-    </button>
-    <details class="menu top-more">
-      <summary class="icon-btn" data-i18n-aria="nav.more"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/></svg></summary>
-      <div class="menu-pop">
-        <button class="menu-item" type="button" data-top="mic"><span data-i18n="nav.mic_menu"></span></button>
-        <button class="menu-item" type="button" data-top="lists"><span data-i18n="nav.lists"></span></button>
-        <button class="menu-item" type="button" data-top="shared"><span data-i18n="nav.shared"></span></button>
-        <button class="menu-item" type="button" data-top="console"><span data-i18n="nav.console"></span></button>
-        <div class="menu-item"><span data-i18n="nav.lang"></span>
-          <span class="lang-switch"><button type="button" data-ui-lang="es">ES</button><button type="button" data-ui-lang="en">EN</button></span></div>
-      </div>
-    </details>
-    <div class="lang-switch wide-only" role="group" id="ui-lang" data-i18n-aria="nav.lang">
-      <button type="button" data-ui-lang="es" title="Español">ES</button>
-      <button type="button" data-ui-lang="en" title="English">EN</button>
-    </div>
-  </header>
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 
-  <main id="main" class="main" tabindex="-1">
-    <div class="loading" data-i18n="loading"></div>
-  </main>
+  <div class="app-shell">
+    <!-- ── Barra lateral: navegación, conversaciones y preferencias ── -->
+    <aside id="sidebar" class="sidebar" data-i18n-aria="nav.sidebar">
+      <div class="flex items-center gap-2 px-3 pt-3 pb-2">
+        <button class="brand" id="btn-home" type="button" data-i18n-aria="nav.gallery">
+          <span class="brand-mark" aria-hidden="true"><img src="/static/icon.svg" width="30" height="30" alt=""></span>
+          <span class="brand-text"><strong data-i18n="app.brand">AuraVox</strong><span data-i18n="brand.sub"></span></span>
+        </button>
+        <span class="flex-1"></span>
+        <button class="icon-btn small sb-collapse" type="button" data-nav-act="toggle" data-i18n-aria="nav.collapse">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18M15 9l-3 3 3 3"/></svg>
+        </button>
+      </div>
+
+      <div class="px-3 pb-2">
+        <button class="sb-new" id="btn-new" type="button" data-nav="new">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span data-i18n="nav.new"></span>
+        </button>
+      </div>
+
+      <nav class="sb-nav" data-i18n-aria="nav.main">
+        <button class="nav-item" id="btn-gallery" type="button" data-nav="gallery">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9.5 9-7 9 7V20a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg>
+          <span class="top-label" data-i18n="nav.home"></span>
+        </button>
+        <button class="nav-item" id="btn-media" type="button" data-nav="media">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+          <span class="top-label" data-i18n="nav.media"></span>
+        </button>
+        <button class="nav-item" id="btn-files" type="button" data-nav="files">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z"/></svg>
+          <span class="top-label" data-i18n="nav.files"></span>
+        </button>
+        <button class="nav-item" id="btn-lists" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6h11M10 12h11M10 18h11M3.5 6l1.2 1.2L7 4.8M3.5 12l1.2 1.2L7 10.8M3.5 18l1.2 1.2L7 16.8"/></svg>
+          <span class="top-label" data-i18n="nav.lists"></span>
+        </button>
+        <button class="nav-item" id="btn-shared" type="button">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg>
+          <span class="top-label" data-i18n="nav.shared"></span>
+        </button>
+        <button class="nav-item" id="btn-console" type="button" title="Ctrl+`">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M12 15h5"/></svg>
+          <span class="top-label" data-i18n="nav.console"></span>
+        </button>
+      </nav>
+
+      <div class="sb-label" data-i18n="nav.chats"></div>
+      <div id="sb-chats" class="sb-chats" role="list"></div>
+
+      <div class="sb-foot">
+        <button class="nav-item mic-btn" id="btn-mic" type="button" data-state="browser" aria-pressed="false" hidden>
+          <span class="mic-icon" aria-hidden="true"></span><span class="mic-dot" aria-hidden="true"></span>
+          <span class="top-label"></span>
+        </button>
+        <div id="ollama-status" class="status"><span class="dot"></span><span class="status-text" data-i18n="status.connecting"></span></div>
+        <div class="sb-prefs">
+          <div class="theme-switch" role="group" data-i18n-aria="theme.label">
+            <button type="button" data-ui-theme="system" data-i18n-aria="theme.system">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2.5"/><path d="M8 21h8M12 17v4"/></svg>
+            </button>
+            <button type="button" data-ui-theme="light" data-i18n-aria="theme.light">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg>
+            </button>
+            <button type="button" data-ui-theme="dark" data-i18n-aria="theme.dark">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+            </button>
+          </div>
+          <div class="lang-switch" role="group" data-i18n-aria="nav.lang">
+            <button type="button" data-ui-lang="es" title="Español">ES</button>
+            <button type="button" data-ui-lang="en" title="English">EN</button>
+          </div>
+        </div>
+        <details class="menu profile-menu" id="profile-menu" hidden></details>
+      </div>
+    </aside>
+    <div class="sb-backdrop" data-nav-act="close" aria-hidden="true"></div>
+
+    <!-- ── Columna principal ── -->
+    <div class="app-col">
+      <header class="topbar">
+        <button class="icon-btn nav-open-btn" type="button" data-nav-act="open" data-i18n-aria="nav.open_menu">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h10M4 17h16"/></svg>
+        </button>
+        <span class="top-brand" aria-hidden="true"><img src="/static/icon.svg" width="26" height="26" alt=""><strong data-i18n="app.brand">AuraVox</strong></span>
+        <span class="crumb" id="crumb"></span>
+        <span class="spacer"></span>
+        <div class="theme-switch locked-only" role="group" data-i18n-aria="theme.label">
+          <button type="button" data-ui-theme="system" data-i18n-aria="theme.system"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2.5"/><path d="M8 21h8M12 17v4"/></svg></button>
+          <button type="button" data-ui-theme="light" data-i18n-aria="theme.light"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></svg></button>
+          <button type="button" data-ui-theme="dark" data-i18n-aria="theme.dark"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg></button>
+        </div>
+        <div class="lang-switch locked-only" role="group" id="ui-lang" data-i18n-aria="nav.lang">
+          <button type="button" data-ui-lang="es" title="Español">ES</button>
+          <button type="button" data-ui-lang="en" title="English">EN</button>
+        </div>
+      </header>
+
+      <main id="main" class="main" tabindex="-1">
+        <div class="loading" data-i18n="loading"></div>
+      </main>
+    </div>
+  </div>
 
   <section id="console" class="console" hidden aria-labelledby="console-title">
     <div class="console-resize" id="console-resize" aria-hidden="true"></div>

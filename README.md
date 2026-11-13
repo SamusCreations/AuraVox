@@ -529,3 +529,8 @@ While **`AuraVox.bat`** is the primary launcher for the complete Web UI + Voice 
 - `extras\switch_model.bat`: Interactive CLI wizard to change an assistant's Ollama `base_model` (`app/scripts/switch_model.py`).
 - `extras\free_ollama_memory.bat`: Emergency CLI utility that immediately unloads all currently loaded models from Ollama RAM/VRAM (`app/scripts/free_ollama_memory.py`).
 - `extras\spotify_setup.bat`: Interactive OAuth2 setup wizard for Spotify integration (`app/scripts/spotify_setup.py`).
+- `extras\build-css.bat`: Rebuilds the Web UI stylesheet (`app/webui/static/style.css`) from `app/webui/static/src/` with the Tailwind CSS standalone CLI (downloaded once to `cache\tailwind\`, no Node.js needed). Pass `--watch` to rebuild on every change while editing styles.
+
+### Web UI design (Tailwind CSS)
+
+The Web UI uses the **"Aura"** design: a minimalist, mobile-first layout inspired by modern chat apps (sidebar with one conversation per assistant, composer at the bottom, replies as full-width text), glass surfaces and violet/cyan accents. It has **system / light / dark** themes (switch at the bottom of the sidebar, remembered per browser) and keeps the **Spanish / English** UI. Styles are authored for Tailwind CSS v4 in `app/webui/static/src/` and the compiled `style.css` is committed, so running AuraVox never needs a build step; only run `extras\build-css.bat` after changing styles.

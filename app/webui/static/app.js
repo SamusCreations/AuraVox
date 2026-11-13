@@ -539,6 +539,7 @@ async function setUiLang(lang) {
     if (d.fallback_message === STRINGS[old]["new.fallback"]) d.fallback_message = STRINGS[lang]["new.fallback"];
   }
   applyStaticI18n();
+  applyTheme();
   renderOllamaStatus();
   if (S.data) renderProfileButton();
   if (S.login) return renderLogin(S.login);
@@ -546,14 +547,126 @@ async function setUiLang(lang) {
   renderView();
 }
 
-// Barra superior: dónde estás (galería / asistente / ajustes compartidos).
+// Barra lateral y barra superior (celular): dónde estás (inicio /
+// asistente / ajustes / bibliotecas…).
 function renderNav() {
   const v = S.view;
   $("#btn-shared").classList.toggle("active", v?.kind === "shared");
+  $("#btn-gallery")?.classList.toggle("active", v?.kind === "gallery");
+  $("#btn-new")?.classList.toggle("active", v?.kind === "new");
   Object.keys(FEATURE_VIEWS).forEach((k) => $(`#btn-${k}`)?.classList.toggle("active", v?.kind === k));
   const here = !v || v.kind === "gallery" ? "" : v.kind === "shared" ? t(settingsKey())
     : FEATURE_VIEWS[v.kind] ? FEATURE_VIEWS[v.kind].title() : displayName(S.draft);
-  $("#crumb").innerHTML = here ? `<span class="sep" aria-hidden="true">/</span><span class="here">${esc(here)}</span>` : "";
+  $("#crumb").innerHTML = here ? `<span class="here">${esc(here)}</span>` : "";
+  renderSidebar();
+}
+
+// ── Barra lateral (como las apps de chat): navegación, una conversación por
+// asistente y, abajo, micrófono, estado de Ollama, tema, idioma y perfil. En
+// pantallas anchas está fija (se puede plegar); en el celular es un cajón.
+const NAV_DOCKED = "(min-width: 1024px)";
+
+function renderSidebar() {
+  const box = $("#sb-chats");
+  if (!box || !S.data) return;
+  const list = S.data.assistants || [];
+  const current = S.view?.kind === "assistant" ? S.view.name : null;
+  $("#btn-new").hidden = isGuest();
+  box.innerHTML = list.length ? list.map((a) => {
+    const name = displayName(a);
+    return `<div class="sb-chat ${a.name === current ? "active" : ""}" role="listitem" style="${colorStyle(a)}">
+      <button type="button" class="sb-chat-open" data-sb-open="${esc(a.name)}" title="${esc(t("gallery.open", { name }))}"
+        ${a.name === current ? 'aria-current="page"' : ""}>
+        ${orbAvatar(a, "sm")}
+        <span class="sb-chat-text"><span class="sb-chat-name">${esc(name)}</span><small>${esc(a.base_model || "")}</small></span>
+      </button>
+      <button type="button" class="sb-chat-voice" data-sb-voice="${esc(a.name)}" aria-label="${esc(t("gallery.voice"))} · ${esc(name)}"
+        title="${esc(t("gallery.voice"))}">${ICON.wave}</button>
+    </div>`;
+  }).join("") : `<p class="sb-empty">${esc(t("nav.no_chats"))}</p>`;
+}
+
+function setNavOpen(open) {
+  document.body.classList.toggle("nav-open", open);
+  if (open) $("#sidebar .sb-new:not([hidden]), #sidebar .nav-item")?.focus({ preventScroll: true });
+}
+
+function toggleNavCollapsed() {
+  if (!window.matchMedia(NAV_DOCKED).matches) return setNavOpen(false);
+  const collapsed = document.documentElement.classList.toggle("nav-collapsed");
+  try { localStorage.setItem("nav-collapsed", collapsed ? "1" : "0"); } catch { /* sin almacenamiento local */ }
+}
+
+function initSidebar() {
+  const bar = $("#sidebar");
+  bar.addEventListener("click", (e) => {
+    const open = e.target.closest("[data-sb-open]");
+    const voice = e.target.closest("[data-sb-voice]");
+    const nav = e.target.closest("[data-nav]");
+    if (open) select({ kind: "assistant", name: open.dataset.sbOpen }, { mode: "text" });
+    else if (voice) select({ kind: "assistant", name: voice.dataset.sbVoice }, { mode: "voice", autostart: true });
+    else if (nav) select({ kind: nav.dataset.nav });
+    else return;
+    if (!window.matchMedia(NAV_DOCKED).matches) setNavOpen(false);
+  });
+  // Botones que abren, cierran o pliegan la barra (están fuera de ella también).
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-nav-act]");
+    if (!b) return;
+    const act = b.dataset.navAct;
+    if (act === "open") {
+      if (window.matchMedia(NAV_DOCKED).matches) toggleNavCollapsed();
+      else setNavOpen(true);
+    } else if (act === "close") setNavOpen(false);
+    else if (act === "toggle") toggleNavCollapsed();
+  });
+  // Al tocar otro botón de la barra (Listas, Ajustes, Consola…) en el celular, se cierra.
+  bar.addEventListener("click", (e) => {
+    if (e.target.closest(".nav-item:not(.mic-btn)") && !window.matchMedia(NAV_DOCKED).matches) setNavOpen(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNavOpen(false);
+  });
+  window.matchMedia(NAV_DOCKED).addEventListener("change", () => setNavOpen(false));
+}
+
+// ── Tema: el del sistema, claro u oscuro (se guarda en este navegador) ──
+const THEME_MQ = window.matchMedia("(prefers-color-scheme: dark)");
+
+function themePref() {
+  try {
+    const v = localStorage.getItem("ui-theme");
+    if (v === "light" || v === "dark") return v;
+  } catch { /* sin almacenamiento local */ }
+  return "system";
+}
+
+function applyTheme(pref = themePref()) {
+  const dark = pref === "dark" || (pref === "system" && THEME_MQ.matches);
+  const root = document.documentElement;
+  root.dataset.theme = dark ? "dark" : "light";
+  root.dataset.themePref = pref;
+  $('meta[name="theme-color"]')?.setAttribute("content", dark ? "#07080d" : "#f6f7fb");
+  $$("[data-ui-theme]").forEach((b) => {
+    const on = b.dataset.uiTheme === pref;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.title = t(`theme.${b.dataset.uiTheme}`);
+  });
+}
+
+function setTheme(pref) {
+  try {
+    if (pref === "system") localStorage.removeItem("ui-theme");
+    else localStorage.setItem("ui-theme", pref);
+  } catch { /* sin almacenamiento local */ }
+  applyTheme(pref);
+}
+
+function initTheme() {
+  applyTheme();
+  $$("[data-ui-theme]").forEach((b) => { b.onclick = () => setTheme(b.dataset.uiTheme); });
+  THEME_MQ.addEventListener("change", () => { if (themePref() === "system") applyTheme("system"); });
 }
 
 // ── Galería (página de inicio) ─────────────────────────────────────────
@@ -3067,7 +3180,7 @@ function renderChat() {
   box.className = `stage mode-${CHAT.mode}`;
   box.innerHTML = `
     <header class="stage-head">
-      <button class="icon-btn" type="button" data-act="go-gallery" aria-label="${esc(t("nav.back"))}" title="${esc(t("nav.back"))}">${ICON.back}</button>
+      <button class="icon-btn nav-open-btn" type="button" data-nav-act="open" aria-label="${esc(t("nav.open_menu"))}" title="${esc(t("nav.open_menu"))}">${svgIcon("menu", 20)}</button>
       <span class="avatar orb-avatar js-assistant-avatar" id="head-avatar" aria-hidden="true"></span>
       <div class="head-text"><h1 id="head-title"></h1><p id="head-sub"></p></div>
       <div class="segmented" role="tablist">${tab("text", ICON.chat, "chat.mode_text_help")}${tab("voice", ICON.wave, "chat.mode_voice_help")}</div>
@@ -6340,13 +6453,15 @@ function applyRole() {
   document.body.dataset.role = ME()?.role || "";
   const admin = isAdmin();
   $("#btn-console").hidden = !admin;
-  $("[data-top=console]").hidden = !admin;
+  const topConsole = $("[data-top=console]");
+  if (topConsole) topConsole.hidden = !admin;
   if (!admin && CONSOLE.open) setConsoleOpen(false);
   $$("#btn-shared .top-label, [data-top=shared] span").forEach((el) => {
     el.dataset.i18n = settingsKey();
     el.textContent = t(settingsKey());
   });
   renderProfileButton();
+  renderSidebar();
 }
 
 const profileAvatar = (p, cls = "") =>
@@ -6643,6 +6758,7 @@ async function onProfilesClick(e) {
 async function boot() {
   if (new URLSearchParams(location.search).has("key")) history.replaceState(null, "", location.pathname + location.hash);
   applyStaticI18n();
+  initTheme();
   $$("[data-ui-lang]").forEach((b) => { b.onclick = () => setUiLang(b.dataset.uiLang); });
   let who;
   try {
@@ -6678,7 +6794,9 @@ async function boot() {
   $$("[data-top]").forEach((b) => {
     b.onclick = () => $(`#btn-${b.dataset.top}`)?.click();
   });
-  $("[data-top=mic]").hidden = !LOCAL_PAGE;
+  const topMic = $("[data-top=mic]");
+  if (topMic) topMic.hidden = !LOCAL_PAGE;
+  initSidebar();
   window.addEventListener("popstate", onPopState);
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey && (e.code === "Backquote" || e.key === "`") && !S.capturing && isAdmin()) {

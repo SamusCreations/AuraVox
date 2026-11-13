@@ -65,6 +65,7 @@ const ICON_PATHS = {
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/>',
   chart: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+  menu: '<path d="M4 7h16M4 12h10M4 17h16"/>',
   arrowLeft: '<path d="m12 19-7-7 7-7M19 12H5"/>',
   play: '<polygon points="6 4 20 12 6 20 6 4"/>',
   table: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',

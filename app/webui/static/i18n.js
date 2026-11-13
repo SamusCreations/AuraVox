@@ -2757,3 +2757,35 @@ Object.assign(STRINGS.en, {
   "lib.del_kept": "{n} stay on disk because another profile also uses them; they were removed from your chats.",
   "lib.del_none": "Nothing to delete (maybe it was already deleted).",
 });
+
+// Barra lateral y tema (rediseño con Tailwind)
+Object.assign(STRINGS.es, {
+  "nav.sidebar": "Barra lateral",
+  "nav.main": "Navegación principal",
+  "nav.home": "Inicio",
+  "nav.media": "Imágenes y videos",
+  "nav.files": "Archivos",
+  "nav.chats": "Conversaciones",
+  "nav.no_chats": "Todavía no hay asistentes.",
+  "nav.open_menu": "Abrir el menú",
+  "nav.collapse": "Mostrar u ocultar la barra lateral",
+  "theme.label": "Tema",
+  "theme.system": "Tema del sistema",
+  "theme.light": "Tema claro",
+  "theme.dark": "Tema oscuro",
+});
+Object.assign(STRINGS.en, {
+  "nav.sidebar": "Sidebar",
+  "nav.main": "Main navigation",
+  "nav.home": "Home",
+  "nav.media": "Images & videos",
+  "nav.files": "Files",
+  "nav.chats": "Conversations",
+  "nav.no_chats": "No assistants yet.",
+  "nav.open_menu": "Open the menu",
+  "nav.collapse": "Show or hide the sidebar",
+  "theme.label": "Theme",
+  "theme.system": "System theme",
+  "theme.light": "Light theme",
+  "theme.dark": "Dark theme",
+});
