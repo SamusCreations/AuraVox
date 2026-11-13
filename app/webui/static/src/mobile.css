@@ -94,3 +94,73 @@ canvas:not(.orb-canvas) { max-width: 100%; }
 .stage-head { min-width: 0; }
 .stage-head .who, .stage-head .who > div { min-width: 0; }
 @media (max-width: 340px) { .stage-head { gap: 4px; padding-left: 8px; padding-right: 8px; } }
+
+/* ── Chat: ningún mensaje más ancho que la columna ──
+   La burbuja es hija de un flex: sin min-width:0 toma el ancho de su
+   contenido más largo (un adjunto, un enlace) y la lista se corre de lado. */
+.chat-log { overflow-x: hidden; }
+.chat-log > .msg { min-width: 0; max-width: 100%; }
+.chat-log > .msg.user { max-width: 88%; }
+.msg .bubble, .msg .md, .msg .who { min-width: 0; max-width: 100%; }
+.md { overflow-wrap: anywhere; }
+.md pre { max-width: 100%; overflow-x: auto; }
+.md table { display: block; max-width: 100%; width: max-content; overflow-x: auto; }
+.md img { height: auto; }
+.att-list, .att-file { min-width: 0; max-width: 100%; }
+.att-file summary, .att-file .att-sum { min-width: 0; }
+.att-file .att-name { min-width: 0; flex: 0 1 auto; }
+.att-file .att-state { min-width: 0; flex: 0 12 auto; } /* se encoge antes que el nombre */
+.att-file .att-open { flex: none; }
+.att-body { overflow-wrap: anywhere; }
+.cj-card, .file-card, .places-card { min-width: 0; max-width: 100%; }
+
+/* Prompt de la imagen generada: oculto bajo la imagen, se abre con su botón */
+.cj-prompt { font-size: 12.5px; }
+.cj-prompt summary {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  list-style: none; cursor: pointer; color: var(--muted); border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text) 4%, transparent); user-select: none;
+}
+.cj-prompt summary::-webkit-details-marker { display: none; }
+.cj-prompt summary:hover { color: var(--text); border-color: var(--border-strong); }
+.cj-prompt summary > svg:last-child { transition: transform .2s; }
+.cj-prompt[open] summary > svg:last-child { transform: rotate(90deg); }
+.cj-prompt p { margin: 8px 2px 0; color: var(--muted); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Cabecera de tarjeta: los botones bajan si no caben al lado del título */
+.card-head { flex-wrap: wrap; }
+.card-head > div:first-child { flex: 1 1 200px; min-width: 0; }
+.me-head-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ── Consola en el celular: pantalla completa con controles ordenados ── */
+@media (max-width: 720px) {
+  .console { inset: 0; height: auto; z-index: 60; border-top: none; padding-top: env(safe-area-inset-top, 0px); }
+  .console-resize, .console-sub, .console-head .spacer { display: none; }
+  .console-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; padding: 10px 12px; align-items: center; }
+  .console-head strong { font-size: 16px; grid-column: 1 / 3; }
+  #console-close { grid-column: 3; grid-row: 1; width: 36px; height: 36px; }
+  .console-head input[type=search] { grid-column: 1 / -1; width: 100%; min-width: 0; font-size: 16px; padding: 8px 10px; border-radius: 10px; }
+  .console-head select { grid-column: 1; min-width: 0; width: 100%; font-size: 15px; padding: 7px 8px; border-radius: 10px; }
+  .console-follow { grid-column: 2; font-size: 14px; }
+  #console-clear { grid-column: 3; }
+  .console-body { font-size: 12px; }
+  .log-line { padding: 2px 12px; flex-wrap: wrap; gap: 0 8px; }
+  .log-line time { font-size: 11px; }
+  .log-line .log-text { flex: 1 1 100%; min-width: 0; }
+  /* La consola tapa la página: no hace falta reservarle espacio abajo */
+  body.console-open .main { padding-bottom: 90px; }
+  body.console-open .main[data-view="assistant"], body.console-open .main[data-view="new"] { height: calc(100dvh - var(--top-h)); }
+  body.console-open .savebar { bottom: 16px; }
+  body.console-open .settings-panel { bottom: 0; }
+}
+
+/* Celular: las respuestas usan todo el ancho; sus botones (escuchar…) van debajo */
+@media (max-width: 720px) {
+  .chat-log > .msg.assistant:not(.user):not(.job) { max-width: 100%; flex-direction: column; align-items: stretch; gap: 2px; }
+  .chat-log > .msg.assistant .msg-acts { flex-direction: row; align-self: flex-start; }
+  .chat-log > .msg.job { max-width: 100%; }
+}
+
+/* Títulos y textos con palabras muy largas (nombres, rutas): parten la palabra antes de salirse */
+#main, .settings-panel { overflow-wrap: break-word; }
+#main :is(h1, h2, h3, h4, label, strong, .chat-empty, .cfg-sec-banner > div) { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }

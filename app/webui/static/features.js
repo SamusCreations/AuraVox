@@ -1886,12 +1886,15 @@ FEATURE_ROLES.job = (m) => {
       <span>${d.cur + 1} / ${iters.length}</span>
       <button class="icon-btn small" type="button" data-cj-nav="1" data-cj-key="${key}" ${d.cur === iters.length - 1 ? "disabled" : ""} aria-label="${esc(t("cj.next"))}" title="${esc(t("cj.next"))}">${svgIcon("chevronRight", 16)}</button></div>` : "";
   const title = t(it.status === "done" ? `cj.done_${d.kind}` : `cj.title_${d.kind}`);
+  // El prompt queda oculto bajo la imagen; se despliega con su botón.
+  const prompt = it.label ? `<details class="cj-prompt"><summary>${svgIcon("note", 14)}<span>${esc(t("cj.prompt_show"))}</span>${svgIcon("chevronRight", 14)}</summary>
+      <p>${esc(it.label)}</p></details>` : "";
   return `<div class="msg job" data-cjob="${key}"><div class="cj-card ${esc(it.status)}" data-cjob-it="${esc(it.id)}">
     <div class="cj-head"><span class="cj-ico ${active ? "busy" : ""}">${cjobIcon(d.kind)}</span>
-      <div class="cj-title"><strong>${esc(title)}</strong><small title="${esc(it.label || "")}">${esc(it.label || "")}</small>
+      <div class="cj-title"><strong>${esc(title)}</strong>
       ${it.wf_name ? `<small class="cj-wf">${esc(t("cj.with_wf", { name: it.wf_name }))}</small>` : ""}
       ${it.note ? `<small class="cj-note">${svgIcon("warn", 13)} ${esc(t(`cj.${it.note}`))}</small>` : ""}</div>${nav}</div>
-    ${body}</div></div>`;
+    ${body}${prompt}</div></div>`;
 };
 
 async function cjobRegen(id) {
