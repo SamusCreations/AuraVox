@@ -1,5 +1,8 @@
 """
-Proceso aparte para las voces clonadas con Qwen3-TTS (modelo "Base").
+Proceso aparte para las voces clonadas con Qwen3-TTS (modelo "Base") y las
+predefinidas (modelo "CustomVoice", `voice.kind == "preset"`). Tiene un solo
+modelo cargado: si una petición trae otro `model_dir`, descarga el actual y
+carga ese (así Base y CustomVoice no ocupan VRAM a la vez).
 
 Corre con OTRO Python, uno que tenga torch con CUDA (por defecto el de
 ComfyUI-Easy-Install, ver voice_settings.default_qwen_python): el Python
@@ -79,9 +82,7 @@ def _load(model_dir: str, compile_model: bool = False, warmup_voice: dict = None
         if compiled and warmup_voice:
             # Lo que se prepara en la primera generación se hace ya, no con
             # la primera frase de verdad.
-            _state["model"].generate_voice_clone(
-                text="Hola, esto es una prueba para preparar la voz.", language="Spanish",
-                voice_clone_prompt=_prompt(warmup_voice))
+            _generate("Hola, esto es una prueba para preparar la voz.", "Spanish", warmup_voice)
     _state["compiled"] = compiled
     _state["accel"] = accel
     _state["requested"] = compile_model
@@ -122,6 +123,11 @@ def _unload() -> None:
     _state["compiled"] = False
     _state["accel"] = "none"
     _state["prompts"].clear()
+    # The CUDA graphs keep their memory pools until collected: without this,
+    # swapping Base <-> CustomVoice left both in VRAM for a while.
+    import gc
+
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
@@ -197,15 +203,22 @@ def _prompt(voice: dict):
     return _state["prompts"][key]
 
 
+def _generate(text: str, language: str, voice: dict, max_new_tokens: int = 1024):
+    """A cloned voice (Base model) or a predefined speaker (CustomVoice
+    model, `instruct` = optional style; the 0.6B model ignores it)."""
+    if voice.get("kind") == "preset":
+        return _state["model"].generate_custom_voice(
+            text=text, language=language, speaker=voice["speaker"], instruct=voice.get("instruct") or None,
+            max_new_tokens=max_new_tokens)
+    return _state["model"].generate_voice_clone(
+        text=text, language=language, voice_clone_prompt=_prompt(voice), max_new_tokens=max_new_tokens)
+
+
 def _synth(req: dict) -> dict:
     loaded = _load(req["model_dir"], bool(req.get("compile")), req.get("voice"))
     t0 = time.time()
-    wavs, sr = _state["model"].generate_voice_clone(
-        text=req["text"],
-        language=req.get("language") or "Auto",
-        voice_clone_prompt=_prompt(req["voice"]),
-        max_new_tokens=int(req.get("max_new_tokens") or 1024),
-    )
+    wavs, sr = _generate(req["text"], req.get("language") or "Auto", req["voice"],
+                         int(req.get("max_new_tokens") or 1024))
     seconds = time.time() - t0
     sf.write(req["out"], wavs[0], sr)
     return {"seconds": round(seconds, 2), "audio_seconds": round(len(wavs[0]) / sr, 2), "sr": sr,

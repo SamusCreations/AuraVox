@@ -26,6 +26,7 @@
 7. [Configuration Reference](#7-configuration-reference)
 8. [HTTP API Overview](#8-http-api-overview)
 9. [Command-Line Utilities (`extras/`)](#9-command-line-utilities-extras)
+10. [Change Notes](#10-change-notes)
 
 ---
 
@@ -513,6 +514,7 @@ Controls Whisper STT model selection (`fast` = `small`, `accurate` = `large-v3-t
 | `POST /api/hf/pull`, `GET/PUT /api/hf/token` | *(admin)* Download a GGUF quantization into Ollama (`hf.co/…` pull, or download + import for private/gated repos); save/remove the HF token. |
 | `POST /api/assistants/<name>/chat/stream` | Streams an assistant chat turn over SSE (`token`, `tool`, `audio`, `done`, `error` events). |
 | `POST /api/group/stream` | Streams a multi-assistant group turn or opinion round over SSE. |
+| `GET/POST/DELETE /api/voices/qwen-download` | *(admin)* Download progress / start (`{kind: "preset"}`) / cancel of the Qwen3-TTS CustomVoice model for the built-in voices. |
 | `POST /api/voice/turn` | Processes a recorded audio blob from Browser/Mobile Voice Mode and returns transcript + reply + TTS audio URLs. |
 | `GET /api/notify` | Long-polling notification stream for hands-free voice activations, ComfyUI job completions, and reminders. |
 | `POST /api/profiles/<id>/pin` | Sets, updates, or clears a profile's PBKDF2-SHA256 PIN/password (`pin` + `pin_confirm`). |
@@ -534,3 +536,15 @@ While **`AuraVox.bat`** is the primary launcher for the complete Web UI + Voice 
 ### Web UI design (Tailwind CSS)
 
 The Web UI uses the **"Aura"** design: a minimalist, mobile-first layout inspired by modern chat apps (sidebar with one conversation per assistant, composer at the bottom, replies as full-width text), glass surfaces and violet/cyan accents. It has **system / light / dark** themes (switch at the bottom of the sidebar, remembered per browser) and keeps the **Spanish / English** UI. Styles are authored for Tailwind CSS v4 in `app/webui/static/src/` and the compiled `style.css` is committed, so running AuraVox never needs a build step; only run `extras\build-css.bat` after changing styles.
+
+---
+
+## 10. Change Notes
+
+### Built-in Qwen3-TTS voices (`feature/voces-qwen-predefinidas`)
+
+- Every assistant can now pick one of the **9 built-in speakers of Qwen3-TTS** (`voice: qwen:<speaker>`): Vivian, Serena, Ono Anna, Sohee, Uncle Fu, Dylan, Eric, Ryan and Aiden (the list in the model's `config.json`). They speak the 10 Qwen3-TTS languages with the accent of their native one (Chinese, Japanese, Korean or English; Dylan and Eric use the Beijing / Sichuan dialect when speaking Chinese); other languages use a Supertonic fallback voice, like cloned voices.
+- They run on the **CustomVoice** model (`Qwen3-TTS-12Hz-0.6B/1.7B-CustomVoice`, same size as the one chosen for cloned voices) through the same worker and the same CUDA-graph runner: measured on the RTX 4080 SUPER (0.6B), 3.9-4.0x real time, model ready in 6.8 s with warm-up.
+- **VRAM**: only one Qwen3-TTS model is loaded at a time. If one assistant uses a cloned voice and another a built-in one, the worker swaps Base <-> CustomVoice when needed (measured 5-6 s per swap, fallback voice meanwhile); five swaps in a row kept the worker at 2.4-2.6 GB reserved, no growth.
+- The model is downloaded **on demand with progress** from the voice selector or Shared settings → Voices (`POST /api/voices/qwen-download`, ~2.4 GB for 0.6B, ~4.5 GB for 1.7B), into `cache/qwen-tts/`.
+- Style instructions (`instruct`) are supported only by the 1.7B CustomVoice model; the worker passes them through but the UI does not expose them yet.

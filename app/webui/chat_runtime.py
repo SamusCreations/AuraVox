@@ -121,7 +121,7 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
     from app.voice.qwen_tts import speaks
     from app.voice.supersonictts import CONFIG, SYNTH_LOCK, _VARIATION_SELECTORS_RE, _numbers_to_words
 
-    custom = voice_settings.get_voice(voice) if voice_settings.is_custom(voice) else None
+    custom = voice_settings.get_voice(voice) if voice_settings.is_qwen(voice) else None
     key = (text, voice, custom["stamp"] if custom else "", round(float(speed), 2), lang)
     with _tts_lock:
         if key in _tts_cache:
@@ -129,7 +129,7 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
             log("voice", f"cached, no regeneration: «{_short(text)}»")
             return _tts_cache[key]
 
-    if voice_settings.is_custom(voice):
+    if voice_settings.is_qwen(voice):
         if custom and speaks(lang):
             try:
                 data = _synthesize_custom(_VARIATION_SELECTORS_RE.sub("", text).strip(), custom, lang, wait)
@@ -142,9 +142,9 @@ def synthesize(text: str, voice: str, speed: float = 1.0, lang: str = "es", wait
                 from app.voice.qwen_tts import WarmingUp
 
                 if isinstance(e, WarmingUp):
-                    log("voice", f"cloned voice {voice} warming up; speaking with fallback voice in the meantime")
+                    log("voice", f"Qwen3-TTS voice {voice} warming up; speaking with fallback voice in the meantime")
                 else:
-                    log("voice", f"cloned voice {voice} unavailable ({e}); using fallback voice", "warn")
+                    log("voice", f"Qwen3-TTS voice {voice} unavailable ({e}); using fallback voice", "warn")
         voice = custom["fallback_voice"] if custom else "M5"
 
     tts_lang = lang if lang in AVAILABLE_LANGUAGES else "na"
@@ -186,7 +186,17 @@ def ensure_preview(lang: str, voice: str) -> str:
     texto de referencia, se genera otra)."""
     from app.core import voice_settings
 
-    if voice_settings.is_custom(voice):
+    if voice_settings.is_preset(voice):
+        # Predefined Qwen3-TTS speakers: generated here (not shipped), next to
+        # the cloned ones; the model size is in the name (each size sounds different).
+        from app.voice.qwen_tts import engine
+
+        custom = voice_settings.get_voice(voice)
+        if not engine().status("preset")["models"]["preset"]:
+            raise FileNotFoundError(engine().model_name("preset"))
+        size = voice_settings.load()["qwen_tts"]["model"].replace(".", "")
+        path = os.path.join(CUSTOM_PREVIEWS_DIR, lang, f"qwen-{custom['id']}_{size}_{custom['stamp']}.wav")
+    elif voice_settings.is_custom(voice):
         custom = voice_settings.get_voice(voice)
         if not custom:
             raise FileNotFoundError(voice)
@@ -201,7 +211,11 @@ def ensure_preview(lang: str, voice: str) -> str:
         with open(tmp, "wb") as f:
             f.write(data)
         os.replace(tmp, path)
-        log("voice", f"preview saved: {os.path.relpath(path, paths.ROOT)}")
+        try:
+            shown = os.path.relpath(path, paths.ROOT)
+        except ValueError:  # another drive (AURAVOX_CONFIG elsewhere)
+            shown = path
+        log("voice", f"preview saved: {shown}")
     return path
 
 
@@ -807,12 +821,20 @@ def prewarm_voices() -> bool:
     from app.core import config_store as store, voice_settings
     from app.voice.qwen_tts import engine
 
-    if any(voice_settings.is_custom(a["voice"]) for a in store.load_state()["assistants"]):
-        if engine().warm_up_async():
-            log("voice", "warming up cloned voices in the background (using fallback voice in the meantime)")
+    voices = [a["voice"] for a in store.load_state()["assistants"]]
+    kinds = [k for k, used in (("clone", any(map(voice_settings.is_custom, voices))),
+                               ("preset", any(map(voice_settings.is_preset, voices)))) if used]
+    if kinds:
+        # Only one Qwen model at a time: keep the loaded one if it is still
+        # used, otherwise warm up the first kind in use.
+        if engine().loaded_kind in kinds:
+            return False
+        if engine().warm_up_async(kinds[0]):
+            log("voice", f"warming up Qwen3-TTS ({engine().model_name(kinds[0])}) in the background "
+                         "(using fallback voice in the meantime)")
             return True
     elif not engine().warming and engine().release():
-        log("memory", "no assistant uses a cloned voice: closed Qwen3-TTS (freed its VRAM)")
+        log("memory", "no assistant uses a Qwen3-TTS voice: closed Qwen3-TTS (freed its VRAM)")
     return False
 
 

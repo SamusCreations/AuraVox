@@ -35,6 +35,31 @@ QWEN_MODELS = {
 }
 DEFAULT_QWEN_MODEL = "0.6B"
 
+# Qwen3-TTS "CustomVoice": the same sizes, with built-in speakers instead of
+# cloning (voice: qwen:<speaker>). Only one Qwen model is loaded at a time:
+# the worker swaps Base <-> CustomVoice when an assistant needs the other.
+QWEN_SPEAKER_MODELS = {
+    "0.6B": "Qwen3-TTS-12Hz-0.6B-CustomVoice",
+    "1.7B": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+}
+PRESET_PREFIX = "qwen:"
+PRESET_STAMP = "preset1"  # bump to regenerate the previews of every speaker
+# The speakers of the CustomVoice models (config.json talker_config.spk_id).
+# `language`: their native language (they speak all 10 Qwen languages);
+# `fallback`: Supertonic voice for the languages Qwen3-TTS doesn't speak.
+QWEN_SPEAKERS = [
+    {"id": "vivian", "name": "Vivian", "gender": "female", "language": "zh", "fallback": "F2"},
+    {"id": "serena", "name": "Serena", "gender": "female", "language": "zh", "fallback": "F1"},
+    {"id": "ono_anna", "name": "Ono Anna", "gender": "female", "language": "ja", "fallback": "F3"},
+    {"id": "sohee", "name": "Sohee", "gender": "female", "language": "ko", "fallback": "F4"},
+    {"id": "uncle_fu", "name": "Uncle Fu", "gender": "male", "language": "zh", "fallback": "M3"},
+    {"id": "dylan", "name": "Dylan", "gender": "male", "language": "zh", "fallback": "M1"},
+    {"id": "eric", "name": "Eric", "gender": "male", "language": "zh", "fallback": "M2"},
+    {"id": "ryan", "name": "Ryan", "gender": "male", "language": "en", "fallback": "M4"},
+    {"id": "aiden", "name": "Aiden", "gender": "male", "language": "en", "fallback": "M5"},
+]
+_SPEAKERS = {s["id"]: s for s in QWEN_SPEAKERS}
+
 CUSTOM_PREFIX = "custom:"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 _LOCK = threading.RLock()
@@ -154,6 +179,20 @@ def is_custom(code) -> bool:
     return isinstance(code, str) and code.lower().startswith(CUSTOM_PREFIX)
 
 
+def is_preset(code) -> bool:
+    """A predefined Qwen3-TTS speaker ("qwen:<speaker>")."""
+    return isinstance(code, str) and code.lower().startswith(PRESET_PREFIX) and code[len(PRESET_PREFIX):].lower() in _SPEAKERS
+
+
+def is_qwen(code) -> bool:
+    """Spoken by Qwen3-TTS: a cloned voice or a predefined speaker."""
+    return is_custom(code) or is_preset(code)
+
+
+def preset_voices() -> list:
+    return [{**s, "code": PRESET_PREFIX + s["id"]} for s in QWEN_SPEAKERS]
+
+
 def custom_id(code: str) -> str:
     return code[len(CUSTOM_PREFIX):].lower() if is_custom(code) else ""
 
@@ -164,7 +203,13 @@ def custom_voices() -> list:
 
 def get_voice(code_or_id: str):
     """La voz clonada (con la ruta absoluta de su audio y una marca que
-    cambia si se edita: `stamp`), o None si no existe."""
+    cambia si se edita: `stamp`), o None si no existe. Con "qwen:<speaker>",
+    el hablante predefinido (`kind: "preset"`, `speaker`)."""
+    if is_preset(code_or_id):
+        spk = _SPEAKERS[code_or_id[len(PRESET_PREFIX):].lower()]
+        return {"id": spk["id"], "kind": "preset", "speaker": spk["id"], "code": PRESET_PREFIX + spk["id"],
+                "name": spk["name"], "language": spk["language"], "fallback_voice": spk["fallback"],
+                "stamp": PRESET_STAMP}
     vid = custom_id(code_or_id) if is_custom(code_or_id) else str(code_or_id or "").lower()
     for v in custom_voices():
         if v["id"] == vid:
@@ -176,13 +221,14 @@ def get_voice(code_or_id: str):
             full_path = os.path.join(paths.CONFIG_DIR, v["full_audio"]) if v.get("full_audio") else ""
             full_mtime = os.path.getmtime(full_path) if full_path and os.path.isfile(full_path) else 0
             stamp = hashlib.sha1(f"{mtime}|{full_mtime}|{v['ref_text']}".encode("utf-8")).hexdigest()[:10]
-            return {**v, "code": CUSTOM_PREFIX + vid, "path": path, "full_path": full_path, "stamp": stamp}
+            return {**v, "kind": "clone", "code": CUSTOM_PREFIX + vid, "path": path, "full_path": full_path, "stamp": stamp}
     return None
 
 
 def voice_codes() -> set:
-    """Códigos válidos de voces clonadas ("custom:<id>")."""
-    return {CUSTOM_PREFIX + v["id"] for v in custom_voices()}
+    """Códigos válidos de voces de Qwen3-TTS: clonadas ("custom:<id>") y
+    predefinidas ("qwen:<speaker>")."""
+    return {CUSTOM_PREFIX + v["id"] for v in custom_voices()} | {PRESET_PREFIX + s["id"] for s in QWEN_SPEAKERS}
 
 
 def add_voice(voice: dict) -> dict:

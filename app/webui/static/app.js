@@ -173,16 +173,31 @@ const voiceGender = (code) => (String(code || "").startsWith("F") ? "female" : "
 const isCustomVoice = (code) => String(code || "").startsWith("custom:");
 const customVoices = () => S.data?.voice_settings?.custom_voices || [];
 const customVoice = (code) => customVoices().find((v) => v.code === code);
+// Voces predefinidas de Qwen3-TTS (modelo CustomVoice): "qwen:<speaker>".
+const isPresetVoice = (code) => String(code || "").startsWith("qwen:");
+const isQwenVoice = (code) => isCustomVoice(code) || isPresetVoice(code);
+const presetVoices = () => S.data?.voice_settings?.preset_voices || [];
+const presetVoice = (code) => presetVoices().find((v) => v.code === code);
+const presetModelReady = () => !!S.data?.voice_settings?.qwen?.models?.preset;
 const voiceName = (code) => (isCustomVoice(code)
   ? (customVoice(code)?.name || code)
-  : t(voiceGender(code) === "female" ? "voice.female" : "voice.male", { n: String(code).slice(1) }));
+  : isPresetVoice(code) ? (presetVoice(code)?.name || code)
+    : t(voiceGender(code) === "female" ? "voice.female" : "voice.male", { n: String(code).slice(1) }));
 // Muestra de una voz en el idioma de la interfaz (las clonadas, con su marca:
-// si se cambia el audio o el texto de referencia, es otra muestra).
+// si se cambia el audio o el texto de referencia, es otra muestra; las
+// predefinidas, con el tamaño del modelo, que cambia cómo suenan).
 const previewUrl = (code) => (isCustomVoice(code)
   ? `/previews/${S.lang}/custom-${code.slice(7)}.wav?v=${customVoice(code)?.stamp || ""}`
-  : `/previews/${S.lang}/${code}.wav`);
+  : isPresetVoice(code) ? `/previews/${S.lang}/qwen-${code.slice(5)}.wav?m=${S.data?.voice_settings?.qwen_model || ""}`
+    : `/previews/${S.lang}/${code}.wav`);
 const displayName = (a) => a.label || (a.name ? a.name.toUpperCase() : t("new.title"));
-const langName = (code) => LANG_NAMES[S.lang][code] || code;
+const langName = (code) => {
+  if (LANG_NAMES[S.lang][code]) return LANG_NAMES[S.lang][code];
+  try { // idiomas fuera de la lista de Whisper/Supertonic (p. ej. "zh" de las voces de Qwen3-TTS)
+    const n = new Intl.DisplayNames([S.lang], { type: "language" }).of(code);
+    return n ? n.charAt(0).toUpperCase() + n.slice(1) : code;
+  } catch { return code; }
+};
 const allLangCodes = () => S.data.languages.map((l) => (typeof l === "string" ? l : l.code));
 // Todos los idiomas del pipeline: assistants.yaml los guarda uno por uno
 // (una lista vacía, escrita a mano, también significa todos).
@@ -283,7 +298,7 @@ function renderMemoryBox() {
     [t("mem.whisper", { model: v.whisper_model || "small" }), v.whisper, "", ""],
     [t("mem.supertonic"), v.supertonic, "", ""],
   ];
-  if (String(S.draft.voice || "").startsWith("custom:")) rows.push([t("mem.qwen", { model: v.qwen_model || "0.6B" }), v.qwen, "", ""]);
+  if (isQwenVoice(S.draft.voice)) rows.push([t(isPresetVoice(S.draft.voice) ? "mem.qwen_preset" : "mem.qwen", { model: v.qwen_model || "0.6B" }), v.qwen, "", ""]);
   const total = rows.reduce((sum, r) => sum + r[1], 0);
   const gpu = S.memory.gpu || {};
   const pct = gpu.total ? Math.min(100, (total / gpu.total) * 100) : 0;
@@ -1114,6 +1129,11 @@ function voiceSection() {
       <div class="voice-group"><h3>${esc(t("voice.custom_group"))}</h3>
         ${customVoices().length ? `<div class="voice-grid">${customVoices().map((v) => voiceCard({ code: v.code })).join("")}</div>`
           : `<p class="note">${esc(t("voice.custom_none"))} <button class="btn btn-sm" type="button" data-act="go-shared">${esc(t("voice.custom_create"))}</button></p>`}
+      </div>
+      <div class="voice-group"><h3>${esc(t("voice.preset_group"))}</h3>
+        <p class="note">${esc(t("voice.preset_sub"))}</p>
+        <div class="qwen-dl" data-qwen-dl>${qwenDlHtml()}</div>
+        <div class="voice-grid">${presetVoices().map((v) => voiceCard({ code: v.code })).join("")}</div>
       </div></div>
     ${sliderField({ field: "speed", label: esc(t("voice.speed")), value: d.speed, min: L.min, max: L.max, step: 0.01, help: esc(t("voice.speed_help")) })}
   </section>`;
@@ -1123,10 +1143,13 @@ function voiceCard(v) {
   const sel = S.draft.voice === v.code;
   const name = voiceName(v.code);
   const custom = isCustomVoice(v.code) ? customVoice(v.code) : null;
-  const sub = custom ? t("voice.custom_sub", { lang: langName(custom.language) }) : name;
-  return `<div class="voice-card ${sel ? "selected" : ""} ${custom ? "custom" : ""}" role="radio" aria-checked="${sel}" tabindex="0" data-voice="${esc(v.code)}">
-    <button type="button" class="play" data-play="${esc(v.code)}" aria-label="${esc(t("voice.listen", { name }))}">${ICON.play}</button>
-    <span class="vc-text"><strong>${esc(custom ? custom.name : v.code)}</strong><span>${esc(sub)}</span></span>
+  const preset = isPresetVoice(v.code) ? presetVoice(v.code) : null;
+  const sub = custom ? t("voice.custom_sub", { lang: langName(custom.language) })
+    : preset ? `${t(`qv.${preset.id}`)} · ${langName(preset.language)}` : name;
+  const canPlay = !preset || presetModelReady();
+  return `<div class="voice-card ${sel ? "selected" : ""} ${custom || preset ? "custom" : ""}" role="radio" aria-checked="${sel}" tabindex="0" data-voice="${esc(v.code)}" ${preset ? `title="${esc(sub)}"` : ""}>
+    <button type="button" class="play" data-play="${esc(v.code)}" aria-label="${esc(t("voice.listen", { name }))}" ${canPlay ? "" : `disabled title="${esc(t("voice.preset_need_dl"))}"`}>${ICON.play}</button>
+    <span class="vc-text"><strong>${esc(custom || preset ? (custom || preset).name : v.code)}</strong><span>${esc(sub)}</span></span>
     <span class="check">${ICON.check}</span>
   </div>`;
 }
@@ -1545,6 +1568,65 @@ function renderPullStatus() {
   }
 }
 
+// Modelo de las voces predefinidas de Qwen3-TTS (CustomVoice): se descarga
+// cuando se pide, con progreso, en cache/qwen-tts (ver qwen_download.py).
+const QWEN_DL_SIZE = { "0.6B": 2.4e9, "1.7B": 4.3e9 };
+let qwenDlTimer = null;
+
+function qwenDlHtml() {
+  const vs = S.data?.voice_settings;
+  if (!vs || presetModelReady()) return "";
+  const st = vs.qwen_download || {};
+  const model = vs.qwen?.speaker_model || "";
+  if (st.state === "running") {
+    if (!qwenDlTimer) qwenDlTimer = setTimeout(pollQwenDl, 1000); // seguía descargando al abrir la página
+    const pct = st.total ? Math.floor((st.completed / st.total) * 100) : 0;
+    const detail = st.total ? t("pull.detail", { pct, done: fmtSize(st.completed), total: fmtSize(st.total) }) : "";
+    return `<div class="progress" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><div style="width:${pct}%"></div></div>
+      <div class="pull-state">${esc(t("voice.preset_dl_running", { model }))} ${detail}
+        <button class="btn btn-sm" type="button" data-act="qwen-dl-cancel">${esc(t("voice.preset_dl_cancel"))}</button></div>`;
+  }
+  const err = st.state === "error" ? `<p class="err">${esc(t("voice.preset_dl_error", { error: st.error || "" }))}</p>` : "";
+  return `<div class="callout info"><div>${esc(t("voice.preset_need_dl_long", { model, size: QWEN_DL_SIZE[vs.qwen_model] ? fmtSize(QWEN_DL_SIZE[vs.qwen_model]) : "" }))}
+    ${isAdmin() ? `<button class="btn btn-sm btn-primary" type="button" data-act="qwen-dl">${svgIcon("download", 15)} ${esc(t("voice.preset_dl"))}</button>` : ""}</div></div>${err}`;
+}
+
+function renderQwenDl() {
+  $$("[data-qwen-dl]").forEach((box) => { box.innerHTML = qwenDlHtml(); });
+}
+
+async function pollQwenDl() {
+  clearTimeout(qwenDlTimer);
+  try {
+    const st = await api("GET", "/api/voices/qwen-download");
+    S.data.voice_settings.qwen_download = st;
+    if (st.state === "running") {
+      qwenDlTimer = setTimeout(pollQwenDl, 1000);
+    } else {
+      qwenDlTimer = null;
+      const state = await api("GET", "/api/state");
+      if (state.voice_settings) S.data.voice_settings = state.voice_settings;
+      if (st.state === "done") toast(t("voice.preset_dl_done"));
+      if (S.view?.kind === "assistant" || S.view?.kind === "new") {
+        $$(".voice-card[data-voice^='qwen:']").forEach((card) => { card.outerHTML = voiceCard({ code: card.dataset.voice }); });
+      }
+      renderVoicesCard();
+    }
+  } catch (e) {
+    toast(e.message, "error");
+  }
+  renderQwenDl();
+}
+
+async function startQwenDl() {
+  try {
+    S.data.voice_settings.qwen_download = await api("POST", "/api/voices/qwen-download", { kind: "preset" });
+  } catch (e) {
+    toast(e.message, "error");
+  }
+  pollQwenDl();
+}
+
 // Muestras de voz (en el idioma de la interfaz)
 const previewAudio = new Audio();
 previewAudio.preservesPitch = true;
@@ -1561,8 +1643,8 @@ function playPreview(code) {
   stopPreview();
   previewAudio.src = previewUrl(code);
   // Las voces clonadas no cambian de velocidad (Qwen3-TTS no lo permite).
-  previewAudio.defaultPlaybackRate = previewAudio.playbackRate = isCustomVoice(code) ? 1 : clampRate(S.draft.speed);
-  if (isCustomVoice(code)) toast(t("voice.custom_generating"), "ok", 4000); // la primera vez tarda unos segundos
+  previewAudio.defaultPlaybackRate = previewAudio.playbackRate = isQwenVoice(code) ? 1 : clampRate(S.draft.speed);
+  if (isQwenVoice(code)) toast(t("voice.custom_generating"), "ok", 4000); // la primera vez tarda unos segundos
   previewCode = code;
   previewAudio.play().catch(() => {
     previewCode = null;
@@ -2502,6 +2584,12 @@ function renderVoicesCard() {
       ${esc(t("voices.qwen_compile"))}</label>
     <p class="note">${esc(t("voices.qwen_compile_help"))}</p>
     <div class="cv-list">${rows || `<p class="empty">${esc(t("voices.none"))}</p>`}</div>
+    <h3 class="sub-h">${esc(t("voice.preset_group"))}</h3>
+    <p class="note">${esc(t("voices.preset_sub"))}</p>
+    <div class="qwen-dl" data-qwen-dl>${qwenDlHtml()}</div>
+    <div class="preset-list">${presetVoices().map((v) => `<div class="preset-chip">
+      <button type="button" class="play" data-play="${esc(v.code)}" aria-label="${esc(t("voice.listen", { name: v.name }))}" ${presetModelReady() ? "" : "disabled"}>${ICON.play}</button>
+      <span class="vc-text"><strong>${esc(v.name)}</strong><span>${esc(t(`qv.${v.id}`))} · ${esc(langName(v.language))}</span></span></div>`).join("")}</div>
     <div class="cv-add">
       <h4>${esc(t("voices.add"))}</h4>
       <div class="cv-main">
@@ -6205,6 +6293,11 @@ const ACTIONS = {
   duplicate: duplicateAssistant,
   delete: deleteAssistant,
   "go-gallery": () => select({ kind: "gallery" }),
+  "qwen-dl": startQwenDl,
+  "qwen-dl-cancel": async () => {
+    await api("DELETE", "/api/voices/qwen-download", {}).catch(() => {});
+    pollQwenDl();
+  },
   "go-shared": () => {
     if (S.view?.kind === "assistant" || S.view?.kind === "new") {
       if (S.asstCat === "sec-voice") S.settingsCat = "voice";

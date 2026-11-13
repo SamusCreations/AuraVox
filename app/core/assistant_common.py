@@ -33,7 +33,7 @@ def normalize_voice(value) -> str:
     from app.core import voice_settings
 
     value = str(value or "").strip()
-    return value.lower() if voice_settings.is_custom(value) else value.upper()
+    return value.lower() if voice_settings.is_qwen(value.lower()) else value.upper()
 
 
 def is_valid_voice(code: str) -> bool:

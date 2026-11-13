@@ -115,7 +115,7 @@ OLD_FILE_CHARS = 1500          # de los más viejos queda el principio
 MAX_MESSAGE_CHARS = 32_000     # texto total de los adjuntos de un mensaje
 B64_RE = re.compile(r"^[A-Za-z0-9+/=\s]+$")
 MODEL_NAME_RE = re.compile(r"^[\w.\-/:]{1,200}$")
-PREVIEW_RE = re.compile(r"^/previews/([a-z]{2})/([FM][1-5]|custom-[a-z0-9][a-z0-9_-]{0,39})\.wav$")
+PREVIEW_RE = re.compile(r"^/previews/([a-z]{2})/([FM][1-5]|custom-[a-z0-9][a-z0-9_-]{0,39}|qwen-[a-z_]{1,20})\.wav$")
 VOICE_AUDIO_RE = re.compile(r"^/voices/([a-z0-9][a-z0-9_-]{0,39})\.wav$")
 
 _LANGUAGES = []  # se calcula una vez al arrancar (importar faster_whisper tarda un poco)
@@ -163,7 +163,31 @@ def _voice_settings_state() -> dict:
         "qwen": engine().status(),
         "qwen_languages": sorted(QWEN_LANGUAGES),
         "custom_voices": voices,
+        "preset_voices": voice_settings.preset_voices(),
+        "qwen_download": _qwen_download.status(),
     }
+
+
+# Downloads of the Qwen3-TTS models (CustomVoice for the predefined speakers),
+# with progress, one at a time (see app/voice/qwen_download.py).
+_qwen_download = hf_hub.Job()
+
+
+def start_qwen_download(kind: str) -> dict:
+    from app.voice import qwen_download
+    from app.voice.qwen_tts import engine
+
+    name = engine().model_name("preset" if kind == "preset" else "clone")
+    if qwen_download.is_downloaded(name):
+        return _qwen_download.status()
+
+    def run(job):
+        server_log.log("voice", f"downloading {name} from Hugging Face")
+        qwen_download.download(name, job)
+        server_log.log("voice", f"{name} downloaded")
+        chat_runtime.prewarm_voices()
+
+    return _qwen_download.start(run, label=name, kind=kind)
 
 
 # ── Perfiles y permisos (ver profiles.py) ──────────────────────────────
@@ -1214,7 +1238,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_file(voice["path"], paths.CUSTOM_VOICES_DIR)
             m = PREVIEW_RE.match(path)
             if m and m.group(1) in chat_runtime.PREVIEW_TEXT:
-                code = m.group(2).replace("custom-", voice_settings.CUSTOM_PREFIX, 1)
+                code = (m.group(2).replace("custom-", voice_settings.CUSTOM_PREFIX, 1)
+                        .replace("qwen-", voice_settings.PRESET_PREFIX, 1))
+                if (code.startswith((voice_settings.CUSTOM_PREFIX, voice_settings.PRESET_PREFIX))
+                        and not voice_settings.get_voice(code)):
+                    return self._send_json({"error": tr("voice_missing", id=m.group(2))}, 404)
                 try:
                     preview = chat_runtime.ensure_preview(m.group(1), code)
                 except Exception as e:  # noqa: BLE001
@@ -1224,6 +1252,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_file(preview, chat_runtime.CUSTOM_PREVIEWS_DIR if custom else chat_runtime.PREVIEWS_DIR)
             if path == "/api/state":
                 return self._send_json(self._state())
+            if path == "/api/voices/qwen-download":
+                return self._send_json(_qwen_download.status())
             if path == "/api/profiles":
                 me = self._state()["me"] if self._sess else None
                 return self._send_json({"setup": profiles.setup_needed(), "profiles": profiles.list_public(), "me": me,
@@ -1389,6 +1419,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(file_store.save(name, data))
             if method == "POST" and path == "/api/voices":
                 return self._add_voice()
+            if path == "/api/voices/qwen-download" and method in ("POST", "DELETE"):
+                if method == "DELETE":
+                    _qwen_download.cancel()
+                    return self._send_json(_qwen_download.status())
+                try:
+                    return self._send_json(start_qwen_download(str(self._body().get("kind") or "preset")))
+                except RuntimeError as e:
+                    return self._send_json({"error": tr("qwen_download_busy", name=str(e))}, 409)
             if path.startswith("/api/knowledge/"):
                 return self._knowledge(method, path)
             if path.startswith("/api/backups"):

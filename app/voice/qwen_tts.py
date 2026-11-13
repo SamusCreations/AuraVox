@@ -7,6 +7,12 @@ config/voice_settings.yaml (por defecto el de ComfyUI). Este módulo lo
 lanza la primera vez que hace falta, le pasa las frases y lo reinicia si se
 cae.
 
+Las voces predefinidas (voice: qwen:<speaker>, ver
+voice_settings.QWEN_SPEAKERS) van por el mismo proceso con el modelo
+"CustomVoice". Solo hay un modelo de Qwen cargado a la vez: si un asistente
+pide el otro tipo de voz, el proceso cambia de modelo (unos segundos, y
+mientras tanto habla la voz de respaldo).
+
 Qwen3-TTS habla 10 idiomas (QWEN_LANGUAGES). En los otros 21 del pipeline
 la voz clonada usa su voz de respaldo de Supertonic (`fallback_voice`).
 
@@ -61,6 +67,7 @@ class QwenTTSEngine:
         self.languages = []
         self.ready = False
         self.warming = False
+        self.loaded_kind = ""  # "clone" | "preset": el modelo cargado ahora
 
     # ── Configuración ──────────────────────────────────────────────────
     @staticmethod
@@ -68,12 +75,20 @@ class QwenTTSEngine:
         return voice_settings.load()["qwen_tts"]["python"] or voice_settings.default_qwen_python()
 
     @staticmethod
-    def model_dir() -> str:
-        name = voice_settings.QWEN_MODELS[voice_settings.load()["qwen_tts"]["model"]]
-        return os.path.join(paths.QWEN_TTS_MODELS_DIR, name)
+    def model_name(kind: str = "clone") -> str:
+        size = voice_settings.load()["qwen_tts"]["model"]
+        return (voice_settings.QWEN_SPEAKER_MODELS if kind == "preset" else voice_settings.QWEN_MODELS)[size]
 
-    def status(self) -> dict:
-        python, model_dir = self.python(), self.model_dir()
+    @classmethod
+    def model_dir(cls, kind: str = "clone") -> str:
+        return os.path.join(paths.QWEN_TTS_MODELS_DIR, cls.model_name(kind))
+
+    def status(self, kind: str = "clone") -> dict:
+        """`available`: se puede usar el modelo de `kind` ("clone" = Base,
+        "preset" = CustomVoice). `models`: cuál de los dos está descargado."""
+        from app.voice import qwen_download
+
+        python, model_dir = self.python(), self.model_dir(kind)
         problem = ""
         if not python or not os.path.isfile(python):
             problem = "no Python with torch found (configure it in Shared Settings → Voices)"
@@ -81,7 +96,9 @@ class QwenTTSEngine:
             problem = f"missing model {os.path.basename(model_dir)} in cache/qwen-tts"
         return {"available": not problem, "problem": problem, "python": python,
                 "model": voice_settings.load()["qwen_tts"]["model"], "running": self._proc is not None,
-                "device": self.device, "ready": self.ready, "warming": self.warming}
+                "device": self.device, "ready": self.ready, "warming": self.warming, "loaded_kind": self.loaded_kind,
+                "models": {k: qwen_download.is_downloaded(self.model_name(k)) for k in ("clone", "preset")},
+                "speaker_model": self.model_name("preset")}
 
     # ── Proceso ────────────────────────────────────────────────────────
     def _start(self) -> None:
@@ -141,6 +158,7 @@ class QwenTTSEngine:
                 pass
         self.device = ""
         self.ready = False
+        self.loaded_kind = ""
 
     def _call(self, request: dict, timeout: float = None) -> dict:
         with self._lock:
@@ -157,38 +175,57 @@ class QwenTTSEngine:
     # ── Uso ────────────────────────────────────────────────────────────
     @staticmethod
     def _voice_payload(voice: dict) -> dict:
-        return {"id": voice["id"], "path": voice["path"], "full_path": voice.get("full_path") or "",
+        if voice.get("kind") == "preset":
+            return {"id": voice["id"], "kind": "preset", "speaker": voice["speaker"],
+                    "instruct": voice.get("instruct") or ""}
+        return {"kind": "clone", "id": voice["id"], "path": voice["path"], "full_path": voice.get("full_path") or "",
                 "ref_text": voice["ref_text"], "stamp": voice["stamp"]}
 
-    def load(self, warmup_voice: dict = None) -> dict:
-        """Carga (y, con `compile`, compila y calienta) el modelo. Puede
-        tardar minutos: para no bloquear, warm_up_async()."""
+    @staticmethod
+    def _kind(voice: dict) -> str:
+        return "preset" if (voice or {}).get("kind") == "preset" else "clone"
+
+    def _loaded(self, kind: str) -> bool:
+        return self.ready and self.loaded_kind == kind
+
+    def load(self, warmup_voice: dict = None, kind: str = None) -> dict:
+        """Carga (y, con `compile`, compila y calienta) el modelo del tipo de
+        `warmup_voice` (o `kind`); si había otro cargado, lo cambia. Puede
+        tardar: para no bloquear, warm_up_async()."""
         compile_model = voice_settings.load()["qwen_tts"]["compile"]
-        warmup_voice = warmup_voice or next(filter(None, map(voice_settings.get_voice,
-                                                             [v["id"] for v in voice_settings.custom_voices()])), None)
+        kind = kind or self._kind(warmup_voice)
+        if not warmup_voice:
+            if kind == "preset":
+                warmup_voice = voice_settings.get_voice(voice_settings.PRESET_PREFIX + voice_settings.QWEN_SPEAKERS[0]["id"])
+            else:
+                warmup_voice = next(filter(None, map(voice_settings.get_voice,
+                                                     [v["id"] for v in voice_settings.custom_voices()])), None)
         t0 = time.time()
         if compile_model:
-            _say("preparing model (CUDA graphs)…")
-        reply = self._call({"op": "load", "model_dir": self.model_dir(), "compile": compile_model,
+            _say(f"preparing model {self.model_name(kind)} (CUDA graphs)…")
+        reply = self._call({"op": "load", "model_dir": self.model_dir(kind), "compile": compile_model,
                             "warmup_voice": self._voice_payload(warmup_voice) if warmup_voice else None}, timeout=900)
         if reply.get("device"):
             self.device = reply["device"]
             self.languages = reply.get("languages") or []
         self.ready = True
-        _say(f"model {os.path.basename(self.model_dir())} ready in {time.time() - t0:.1f}s ({self.device}, "
+        self.loaded_kind = kind
+        _say(f"model {self.model_name(kind)} ready in {time.time() - t0:.1f}s ({self.device}, "
              f"{reply.get('accel') or 'none'})")
         return reply
 
-    def warm_up_async(self) -> bool:
-        """Prepara el modelo en segundo plano (si se puede y no se está
-        haciendo ya). True si lo empezó."""
-        if self.ready or self.warming or not self.status()["available"] or not voice_settings.custom_voices():
+    def warm_up_async(self, kind: str = "clone") -> bool:
+        """Prepara en segundo plano el modelo de `kind` (si se puede, no está
+        ya cargado y no se está preparando otro). True si lo empezó."""
+        if self._loaded(kind) or self.warming or not self.status(kind)["available"]:
+            return False
+        if kind == "clone" and not voice_settings.custom_voices():
             return False
         self.warming = True
 
         def run():
             try:
-                self.load()
+                self.load(kind=kind)
             except Exception as e:  # noqa: BLE001
                 _say(f"could not warm up model: {e}")
             finally:
@@ -203,17 +240,21 @@ class QwenTTSEngine:
         está listo: con `wait`, espera a que se prepare; si no, empieza a
         prepararlo en segundo plano y lanza WarmingUp (el que llama usa la
         voz de respaldo)."""
-        if not self.ready:
+        kind = self._kind(voice)
+        if not self._loaded(kind):
             if not wait:
-                self.warm_up_async()
-                raise WarmingUp("cloned voice is warming up")
+                self.warm_up_async(kind)
+                raise WarmingUp("Qwen3-TTS voice is warming up")
             if not self.warming:
                 self.load(voice)
         reply = self._call({
-            "op": "synth", "model_dir": self.model_dir(), "text": text,
+            "op": "synth", "model_dir": self.model_dir(kind), "text": text,
             "language": QWEN_LANGUAGES.get(lang, "Auto"), "out": out_path,
             "compile": voice_settings.load()["qwen_tts"]["compile"], "voice": self._voice_payload(voice),
         }, timeout=900)
+        # Si esperó a que terminara de prepararse otro modelo, el proceso
+        # cambió al de esta voz en esta misma petición.
+        self.ready, self.loaded_kind = True, kind
         speed = reply["audio_seconds"] / max(reply["seconds"], 0.01)
         _say(f"{voice['id']} [{lang}] on {self.device}: {reply['seconds']:.2f}s for {reply['audio_seconds']:.1f}s of "
              f"audio ({speed:.1f}x real time, {reply.get('accel') or 'none'})")
@@ -285,8 +326,9 @@ class CustomVoice:
 
 
 def make_voice(config: dict):
-    """La voz de un asistente: Supertonic o clonada, según `config["voice"]`."""
-    if voice_settings.is_custom(config.get("voice")):
+    """La voz de un asistente: Supertonic o de Qwen3-TTS (clonada o
+    predefinida), según `config["voice"]`."""
+    if voice_settings.is_qwen(config.get("voice")):
         return CustomVoice(config["voice"], config)
     from app.voice.supersonictts import JarvisVoice
 

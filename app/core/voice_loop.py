@@ -806,7 +806,9 @@ def main():
     # Voces clonadas: Qwen3-TTS se prepara en segundo plano (puede tardar
     # minutos); mientras, esos asistentes hablan con su voz de respaldo.
     if any(voice_settings.is_custom(a["config"]["voice"]) for a in ASSISTANTS.values()):
-        qwen_engine().warm_up_async()
+        qwen_engine().warm_up_async("clone")
+    elif any(voice_settings.is_preset(a["config"]["voice"]) for a in ASSISTANTS.values()):
+        qwen_engine().warm_up_async("preset")
 
     stt.allowed_languages = _resolve_allowed_languages(stt)
     print(f"Active languages: {', '.join(sorted(stt.allowed_languages))}")
