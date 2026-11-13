@@ -625,7 +625,8 @@ function initSidebar() {
     if (e.target.closest(".nav-item:not(.mic-btn)") && !window.matchMedia(NAV_DOCKED).matches) setNavOpen(false);
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNavOpen(false);
+    if (e.key === "Escape" && $(".settings-shell.cfg-open")) setCfgDrawer(false);
+    else if (e.key === "Escape" && document.body.classList.contains("nav-open")) setNavOpen(false);
   });
   window.matchMedia(NAV_DOCKED).addEventListener("change", () => setNavOpen(false));
 }
@@ -1975,7 +1976,25 @@ function selectSettingsCat(catId) {
   $$("[data-cfg-section]").forEach((sec) => {
     sec.hidden = sec.dataset.cfgSection !== catId;
   });
+  const cat = cats.find((c) => c.id === catId);
+  const cur = $("[data-cfg-current]");
+  if (cur) cur.textContent = cat.title;
+  const curIco = $("[data-cfg-current-ico]");
+  if (curIco) curIco.innerHTML = cat.icon;
+  setCfgDrawer(false);
   if (catId === "profile") updatePlaceLabel();
+}
+
+// En el celular el menú de categorías de Ajustes es un cajón lateral que se
+// abre con el botón de la categoría actual y se oculta al elegir una.
+function setCfgDrawer(open) {
+  const shell = $(".settings-shell");
+  if (!shell) return;
+  const wasOpen = shell.classList.contains("cfg-open");
+  shell.classList.toggle("cfg-open", open);
+  $(".cfg-menu-toggle")?.setAttribute("aria-expanded", String(open));
+  if (open) $(".cfg-menu-btn.active, .cfg-menu-btn")?.focus({ preventScroll: true });
+  else if (wasOpen && shell.contains(document.activeElement)) $(".cfg-menu-toggle")?.focus({ preventScroll: true });
 }
 
 function renderShared() {
@@ -2005,8 +2024,20 @@ function renderShared() {
       <div class="head-text"><h1>${esc(t(settingsKey()))}</h1><p>${esc(t(admin ? "shared.sub" : "settings.sub_user"))}</p></div>
     </header>
     ${guestBanner()}
+    <button type="button" class="cfg-menu-toggle" data-cfg-drawer="open" aria-controls="cfg-sidebar" aria-expanded="false"
+      aria-label="${esc(t("cfg.menu_open"))}">
+      <span class="cfg-menu-ico" data-cfg-current-ico>${catMap[S.settingsCat].icon}</span>
+      <span class="cfg-menu-text"><small>${esc(t("cfg.menu_label"))}</small><strong data-cfg-current>${esc(catMap[S.settingsCat].title)}</strong></span>
+      <span class="cfg-toggle-chev" aria-hidden="true">${svgIcon("menu", 18)}</span>
+    </button>
+    <div class="cfg-backdrop" data-cfg-drawer="close" aria-hidden="true"></div>
     <div class="cfg-layout">
-      <aside class="cfg-sidebar">
+      <aside class="cfg-sidebar" id="cfg-sidebar" aria-label="${esc(t("cfg.menu_label"))}">
+        <div class="cfg-drawer-head">
+          <strong>${esc(t("cfg.menu_label"))}</strong>
+          <button type="button" class="icon-btn" data-cfg-drawer="close" aria-label="${esc(t("cfg.menu_close"))}"
+            title="${esc(t("cfg.menu_close"))}">${svgIcon("x", 18)}</button>
+        </div>
         <nav class="cfg-menu" role="tablist" aria-label="${esc(t("cfg.menu_label"))}">
           ${cats.map((c) => `<button type="button" role="tab" class="cfg-menu-btn ${S.settingsCat === c.id ? "active" : ""}"
             aria-selected="${S.settingsCat === c.id}" data-cfg-cat="${c.id}">
@@ -6255,6 +6286,8 @@ function bindMain() {
     const target = e.target;
     const swatch = target.closest("[data-color]");
     if (swatch) return setColor(swatch.dataset.color);
+    const cfgDrawer = target.closest("[data-cfg-drawer]");
+    if (cfgDrawer) return setCfgDrawer(cfgDrawer.dataset.cfgDrawer === "open");
     const cfgBtn = target.closest("[data-cfg-cat]");
     if (cfgBtn) return selectSettingsCat(cfgBtn.dataset.cfgCat);
     const jump = target.closest("[data-jump]");

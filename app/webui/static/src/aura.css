@@ -122,7 +122,6 @@ select { accent-color: var(--accent); }
 .dash-badge { background: rgb(255 255 255 / .2); }
 
 /* ── Ajustes por categorías ── */
-.cfg-menu { border-radius: var(--radius); padding: 8px; gap: 2px; background: color-mix(in srgb, var(--panel) 85%, transparent); }
 .cfg-menu-btn { border-radius: 12px; padding: 10px; color: var(--text); }
 .cfg-menu-btn:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .cfg-menu-btn.active { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -130,7 +129,11 @@ select { accent-color: var(--accent); }
 .cfg-menu-btn.active .cfg-menu-ico { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #fff; box-shadow: var(--glow); }
 .cfg-sec-banner { border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 18%, var(--border)); }
 .cfg-sec-ico { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
-.cfg-sidebar { top: calc(var(--top-h) + 24px); }
+/* Menú fijo a la izquierda sólo en pantallas anchas; en el celular es un cajón (components.css) */
+@media (min-width: 901px) {
+  .cfg-menu { border-radius: var(--radius); padding: 8px; gap: 2px; background: color-mix(in srgb, var(--panel) 85%, transparent); }
+  .cfg-sidebar { top: calc(var(--top-h) + 24px); }
+}
 
 /* ── Espacio del asistente: chat + panel de ajustes ── */
 .stage { background: transparent; }

@@ -995,6 +995,9 @@ button.menu-item { justify-content: flex-start; }
 @keyframes msgInLeft { from { opacity: 0; transform: translateX(-14px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(255, 77, 106, .55); } 100% { box-shadow: 0 0 0 16px rgba(255, 77, 106, 0); } }
 .main > .gallery, .main > .editor, .main > .workspace, .main > .settings-shell, .main > .lib-view { animation: fadeUp .3s ease-out both; }
+/* Sin "forwards": un transform que queda puesto haría de contenedor de los
+   elementos fijos (el cajón de categorías de Ajustes en el celular). */
+.main > .settings-shell { animation-fill-mode: backwards; }
 .gallery-grid > * { animation: fadeUp .35s ease-out both; }
 .gallery-grid > :nth-child(2) { animation-delay: .04s; }
 .gallery-grid > :nth-child(3) { animation-delay: .08s; }
@@ -1465,24 +1468,62 @@ a.btn { text-decoration: none; }
 .asst-cat-btn:hover { color: var(--text); border-color: var(--border-strong); }
 .asst-cat-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 
+/* Botón de la categoría actual y cajón del menú: sólo en pantallas angostas */
+.cfg-menu-toggle, .cfg-backdrop, .cfg-drawer-head { display: none; }
+
 @media (max-width: 900px) {
   .cfg-layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .cfg-sidebar { position: static; width: 100%; }
-  .cfg-menu {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-    padding: 8px; gap: 6px; overflow: visible;
+  /* Botón fijo bajo la barra superior que muestra la categoría y abre el menú */
+  .cfg-menu-toggle {
+    position: sticky; top: calc(var(--top-h) + 8px); z-index: 20;
+    display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 8px 10px 8px 8px; text-align: left;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow);
+    color: var(--text); cursor: pointer; transition: border-color .15s, background .15s;
   }
-  .cfg-menu-btn { width: 100%; align-items: center; padding: 9px 10px; gap: 9px; }
-  .cfg-menu-ico { width: 30px; height: 30px; border-radius: 8px; }
-  .cfg-menu-text strong { font-size: 12.5px; }
-  .cfg-menu-text small { display: none; }
+  .cfg-menu-toggle:hover { border-color: var(--border-strong); }
+  .cfg-menu-toggle .cfg-menu-ico { width: 34px; height: 34px; background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .cfg-menu-toggle .cfg-menu-text { flex: 1; }
+  .cfg-menu-toggle .cfg-menu-text small { font-size: 11px; -webkit-line-clamp: 1; }
+  .cfg-menu-toggle .cfg-menu-text strong { font-size: 14px; }
+  .cfg-toggle-chev { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 10px; color: var(--muted); background: var(--panel-2); }
+
+  /* Cajón lateral que entra por la izquierda; se oculta al elegir una categoría */
+  .cfg-sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: 42; top: 0; width: min(86vw, 320px); max-width: none;
+    display: flex; flex-direction: column; min-height: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 10px calc(env(safe-area-inset-bottom, 0px) + 10px);
+    background: color-mix(in srgb, var(--sidebar) 96%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+    border-right: 1px solid var(--border); box-shadow: var(--shadow-lg);
+    transform: translateX(-102%); visibility: hidden;
+    transition: transform .28s cubic-bezier(.2, .8, .2, 1), visibility 0s .28s;
+  }
+  .cfg-open .cfg-sidebar { transform: none; visibility: visible; transition: transform .28s cubic-bezier(.2, .8, .2, 1), visibility 0s; }
+  .cfg-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 41; background: rgb(5 6 12 / .5);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none; transition: opacity .25s;
+  }
+  .cfg-open .cfg-backdrop { opacity: 1; pointer-events: auto; }
+  .cfg-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 10px 8px; }
+  .cfg-drawer-head strong { font-size: 15px; font-weight: 650; }
+  .cfg-menu {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 0; gap: 4px; background: none; border: none; box-shadow: none; border-radius: 0;
+  }
+  .cfg-menu-btn { align-items: center; padding: 10px; }
+  .cfg-menu-text small { -webkit-line-clamp: 1; }
+}
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) {
+  .cfg-sidebar, .cfg-open .cfg-sidebar, .cfg-backdrop { transition: none; }
 }
 
 @media (max-width: 720px) {
   .settings-shell { gap: 14px; }
   .cfg-top-head { gap: 10px; }
   .cfg-top-head .avatar-lg { width: 42px; height: 42px; }
-  .cfg-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cfg-sec-banner { padding: 12px 14px; gap: 10px; }
   .cfg-sec-ico { width: 34px; height: 34px; }
   .cfg-sec-banner h2 { font-size: 15px; }
@@ -1507,10 +1548,6 @@ a.btn { text-decoration: none; }
     padding: 10px 12px; flex-wrap: wrap; justify-content: space-between;
   }
   .savebar span { font-size: 13px; }
-}
-
-@media (max-width: 420px) {
-  .cfg-menu { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ── Dashboard en la pantalla principal (#/) ────────────────────────── */
