@@ -1271,6 +1271,9 @@ a.btn { text-decoration: none; }
 .side-btn:hover { background: rgba(255, 255, 255, .2); transform: scale(1.05); }
 .side-btn.on { background: #fff; color: #12111c; }
 .side-btn svg { width: 20px; height: 20px; }
+.voice-attach > summary.side-btn { list-style: none; }
+details.menu.voice-attach[open] > summary.side-btn { background: #fff; color: #12111c; }
+.voice-attach .menu-pop.up { min-width: 220px; }
 .voice-tray { max-width: 560px; margin: 0 auto 6px; justify-content: center; }
 .video-pip { position: absolute; top: 72px; right: 16px; width: min(34%, 360px); aspect-ratio: 4 / 3; border-radius: 16px; overflow: hidden;
   background: #000; box-shadow: 0 8px 30px rgba(0, 0, 0, .45), 0 0 0 2px rgba(255, 255, 255, .25); z-index: 5; animation: rem-in .3s ease; }

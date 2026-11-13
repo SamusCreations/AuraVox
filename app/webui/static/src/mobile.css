@@ -9,7 +9,9 @@ html, body { max-width: 100%; overflow-x: clip; }
 .app-shell, .app-col, .main { min-width: 0; max-width: 100%; }
 .app-col, .main { overflow-x: clip; }
 .main > * { min-width: 0; max-width: 100%; }
-img, video, canvas, iframe { max-width: 100%; }
+img, video, iframe { max-width: 100%; }
+/* El lienzo del aro es a propósito 150% del aro (ver .orb-canvas): no se limita */
+canvas:not(.orb-canvas) { max-width: 100%; }
 
 /* Columnas de grid que se encogen (1fr solo no baja del contenido más ancho) */
 .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); }

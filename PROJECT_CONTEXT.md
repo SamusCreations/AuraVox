@@ -177,7 +177,7 @@ The SPA uses hash routing (`location.hash`):
 Any content generated (ComfyUI images/videos, files converted via `convert_file`) or uploaded (documents, PDFs, spreadsheets, transcribed audio, images) inside a profile can be referenced in **any other chat belonging to the same profile**:
 
 1. **From the Chat UI (`openLibraryPickerModal` in `features.js` + `attachLibraryItemToChat` in `app.js`):**
-   - Both the text composer and voice mode include a **Profile Library** button (`data-chat-act="library"`, folder icon).
+   - Both the text composer and voice mode include a **Profile Library** option (`data-chat-act="library"`, folder icon). In voice mode, attach / library / camera are grouped in a single "+" dropdown (`details.menu.voice-attach` in `voiceSides`, `features.js`), so the row shows only that button, the mic and the video-call button; the text composer shows them as separate buttons on wide screens and as the "+" menu (`.attach-more`) on narrow ones.
    - Opens a searchable, filterable modal listing all images, videos, audio clips, and documents in the profile. Selecting an item attaches it to `CHAT.attachments` reusing its `/api/files/<id>` URL (zero disk duplication), preparing base64 image data for vision models or reusing extracted text/transcripts.
    - In `#/media`, `#/files`, and preview modals, every item has a **"Use in chat"** button (`useLibraryItemInChat`) to pick an assistant and open the chat with that item pre-attached.
 2. **From Backend Tools (`_conversation_files` in `config_ui.py` + `list_profile_files` in `dashboard.py`):**

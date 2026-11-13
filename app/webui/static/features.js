@@ -1569,9 +1569,14 @@ const VC = { on: false, stream: null, facing: "environment", busy: false, frameS
 function voiceSides(center) {
   const vision = canSeeImages();
   const btn = (act, icon, label, extra = "") => `<button class="side-btn ${extra}" type="button" ${act} aria-label="${esc(label)}" title="${esc(label)}">${icon}</button>`;
-  const left = `<div class="voice-side">${btn('data-chat-act="attach"', ICON.clip, t("att.add"))}
-    ${!isGuest() ? btn('data-chat-act="library"', ICON.library, t("att.from_library")) : ""}
-    ${vision ? btn('data-chat-act="camera"', ICON.camera, t("cam.open")) : ""}</div>`;
+  // Adjuntar, biblioteca y cámara van juntos en un solo botón "+" que despliega las opciones.
+  const left = `<div class="voice-side"><details class="menu voice-attach">
+      <summary class="side-btn" aria-label="${esc(t("att.add"))}" title="${esc(t("att.add"))}">${ICON.plus}</summary>
+      <div class="menu-pop up">
+        <button class="menu-item" type="button" data-chat-act="attach">${ICON.clip}<span>${esc(t("att.files"))}</span></button>
+        ${!isGuest() ? `<button class="menu-item" type="button" data-chat-act="library">${ICON.library}<span>${esc(t("att.from_library"))}</span></button>` : ""}
+        ${vision ? `<button class="menu-item" type="button" data-chat-act="camera">${ICON.camera}<span>${esc(t("cam.open"))}</span></button>` : ""}
+      </div></details></div>`;
   const right = `<div class="voice-side">${vision ? btn('data-vc="toggle"', VC.on ? VC_ICON.videoOff : VC_ICON.video, t(VC.on ? "vc.stop" : "vc.start"), VC.on ? "on" : "") : ""}</div>`;
   return `<div class="voice-row">${left}${center}${right}</div>`;
 }
